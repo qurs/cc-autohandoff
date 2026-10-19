@@ -6,8 +6,8 @@
   "plugins": [
     {
       "name": "cc-autohandoff",
-      "source": "./",
-      "description": "Handoff at 120k context tokens: GPT-6 Luna for Codex, Haiku 5.5 for Claude Code. No compact."
+      "source": "./dist/plugin",
+      "description": "Передача при 120 000 токенов контекста: GPT-6 Luna для Codex, Haiku 5.5 для Claude Code. Без compact."
     }
   ]
 }

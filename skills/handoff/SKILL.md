@@ -8,9 +8,12 @@ Hooks `cc-autohandoff` готовят handoff отдельной **gpt-6-luna** 
 не вызывай compact или fork. После порога не продолжай исходную задачу.
 
 Уведомление hook содержит каталог и команду retry. Для сбоя writer выполни эту команду
-один раз. Просмотр: `python <plugin-root>/scripts/handoff.py status --session-dir <directory>`.
-Ручная генерация: `python <plugin-root>/scripts/handoff.py --platform codex generate --transcript <absolute-jsonl-path> --workspace <absolute-workspace>`;
-для Claude Code укажи `--platform claude`, на macOS/Linux при необходимости `python3`.
+один раз. В готовом пакете Windows x64 используй PowerShell и встроенный исполняемый файл:
+`& '<plugin-root>/bin/cc-autohandoff.exe' status --session-dir '<directory>'`.
+Ручная генерация: `& '<plugin-root>/bin/cc-autohandoff.exe' --platform codex generate --transcript '<absolute-jsonl-path>' --workspace '<absolute-workspace>'`;
+для Claude Code укажи `--platform claude`. Установка Python не нужна.
+В исходной версии для разработчиков вместо исполняемого файла запускают
+`python <plugin-root>/scripts/handoff.py`; исходные hooks требуют Python 3.11+.
 Корень плагина расположен на два уровня выше каталога этого навыка. Пути с пробелами
 заключай в кавычки. Status и retry восстанавливают платформу из метаданных сессии.
 
@@ -24,7 +27,7 @@ App Server, fork или отдельную рабочую CLI-сессию вм�
 для очереди используй `clientThreadId`, не передавая его инструменту открытия.
 
 При сбое доставки сообщи ошибку и сохрани ссылки. Явный повтор:
-`python <plugin-root>/scripts/handoff.py retry-continuation --session-dir <directory>`.
+`& '<plugin-root>/bin/cc-autohandoff.exe' retry-continuation --session-dir '<directory>'`.
 Если создание могло выполниться, сначала проверь список чатов; только после проверки
 отсутствия продолжения допустим `--confirm-no-chat`. Не повторяй создание с известным
 `threadId` или `clientThreadId`. После retry пользователь отправляет в старый чат

@@ -9,13 +9,15 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = (Path(sys.executable).resolve().parents[1] if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parents[1])
 SCRIPT = Path(__file__).resolve()
 MODEL = "gpt-6-luna"
 PLATFORM = "codex"
@@ -27,6 +29,30 @@ DESKTOP_TOOLS = {
     "create": "mcp__codex_app__create_thread",
     "open": "mcp__codex_app__navigate_to_codex_page",
 }
+
+
+def cli_command(*arguments):
+    command = ([sys.executable] if getattr(sys, "frozen", False)
+               else [sys.executable, str(SCRIPT)]) + list(arguments)
+    if os.name == "nt":
+        return "& " + " ".join("'" + item.replace("'", "''") + "'" for item in command)
+    return shlex.join(command)
+
+
+def restore_system_libraries(env):
+    if not getattr(sys, "frozen", False):
+        return
+    # Frozen libraries must not leak into the independently installed writer CLI.
+    if os.name == "nt":
+        import ctypes
+        if not ctypes.windll.kernel32.SetDllDirectoryW(None):
+            raise ctypes.WinError()
+    for key in ("LD_LIBRARY_PATH", "LIBPATH"):
+        original = env.pop(key + "_ORIG", None)
+        if original is None:
+            env.pop(key, None)
+        else:
+            env[key] = original
 
 
 def settings():
@@ -317,6 +343,7 @@ def writer_command(output, cfg, directory):
 
 def run_writer(command, prompt, directory, timeout):
     env = os.environ.copy()
+    restore_system_libraries(env)
     env["CODEX_HANDOFF_WRITER"] = "1"  # defense in depth against recursive hooks
     env["CC_AUTOHANDOFF_WRITER"] = "1"
     if PLATFORM == "claude":
@@ -537,7 +564,7 @@ def desktop_event(state, event, cfg):
 def desktop_notice(state):
     continuation = state.get("continuation", {})
     stage = continuation.get("phase", "pending")
-    retry = f'python "{SCRIPT}" retry-continuation --session-dir "{state["directory"]}"'
+    retry = cli_command("retry-continuation", "--session-dir", state["directory"])
     if stage == "pending":
         return ("Автопереход Codex desktop включён пользователем. Вызови только " + DESKTOP_TOOLS["projects"] +
                 " с {}. После его результата следуй следующему сообщению hook. Если инструмент недоступен, "
@@ -587,7 +614,7 @@ def delivery_complete(state, last):
 
 def notice(state):
     directory = Path(state["directory"])
-    retry = f'python "{SCRIPT}" --platform {PLATFORM} retry --session-dir "{directory}"'
+    retry = cli_command("--platform", PLATFORM, "retry", "--session-dir", str(directory))
     if state["phase"] == "ready":
         transition = desktop_notice(state) if state.get("continuation_mode") == "codex-desktop" else "Пользователь создаст новый чат вручную. Не создавай чат."
         if state.get("continuation_mode") != "codex-desktop" and state.get("continuation"):
@@ -813,6 +840,8 @@ def main():
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     main()

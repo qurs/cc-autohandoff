@@ -4,6 +4,9 @@ __pycache__/
 .cc-autohandoff/
 .codex-handoff/
 .csp/
+.build-tools/
+.build/
+dist/
 .env
 .env.*
 !.env.example

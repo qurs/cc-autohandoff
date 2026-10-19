@@ -28,14 +28,14 @@ Hooks: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, 
 
 В Codex `PreCompact` возвращает `continue: false`. Claude Code требует
 `decision: "block"` и игнорирует `continue`/`systemMessage` этого события.
-Для Claude Code нужна версия с поддержкой блокировки `PreCompact` и exec-form hooks
-(`command` + `args`). На старых версиях контракт не гарантируется.
+Для Claude Code нужна версия 2.1.295+ с поддержкой блокировки `PreCompact`, exec-form hooks
+(`command` + `args`) и `onFailure: block`. На старых версиях контракт не гарантируется.
 
 ## Доставка в Codex desktop
 
 `continuation.codex = codex-desktop` разрешает основной модели после `ready` вызвать
 `mcp__codex_app__list_projects` с `{}`, затем `mcp__codex_app__create_thread` и
-`mcp__codex_app__navigate_to_codex_page`. Сам Python hook не имеет доступа к этим инструментам.
+`mcp__codex_app__navigate_to_codex_page`. Сам процесс hook не имеет доступа к этим инструментам.
 При `manual`, в Claude Code и у старого состояния без режима продолжения автосоздания нет.
 Выбор проекта требует единственного совпадения абсолютного пути с рабочей папкой,
 `projectKind = local` и `hostId = local`. Используется локальная среда, без worktree.
@@ -90,6 +90,32 @@ Codex использует ephemeral read-only `codex exec`; Claude Code — pri
 Это локальные данные сессии, исключённые из Git. Ошибка оставляет сессию заблокированной;
 уведомление содержит точную команду `retry`. Путь CLI можно задать через
 `CODEX_HANDOFF_CODEX` или `CC_AUTOHANDOFF_CLAUDE`.
+
+## Автономный пакет Windows x64
+
+`scripts/build_plugin.py` собирает Python runtime через PyInstaller в onedir-формате.
+`bin/cc-autohandoff.exe` определяет корень пакета по своему расположению, поэтому
+находит настройки, схему и инструкции после копирования в cache приложения.
+Перед внешним writer восстанавливается системный поиск DLL; bundled библиотеки
+не должны попадать в отдельно установленный CLI. stdin/stdout hooks используют UTF-8.
+
+Исходные hooks остаются Python-командами. Сборщик создаёт отдельные JSON-конфигурации:
+Codex использует `commandWindows` с Windows PowerShell launcher `scripts/hook.ps1`,
+который передаёт stdin/stdout и код возврата executable. Claude Code запускает `.exe`
+напрямую через `command` и `args`, без shell. `onFailure: block` закрывает путь
+продолжения работы при сбое launcher на `PreToolUse`, `UserPromptSubmit`, `PreCompact`.
+
+В готовом каталоге есть два локальных marketplace: Codex и Claude Code, оба ссылаются
+на корень пакета. Исходные marketplace ссылаются на `./dist/plugin`. Поэтому удалённая
+установка из репозитория исходников без предварительной сборки не поддерживается.
+Готовые бинарники и удалённый marketplace пока не опубликованы.
+
+Сборка копирует только разрешённые файлы, runtime и лицензии; SHA-256 manifest включает
+все файлы кроме самого manifest. Проверка целостности не заменяет подпись издателя.
+`scripts/check_package.py` запускает пакет из каталога с пробелами и кириллицей,
+ограничивая `PATH` системными каталогами Windows. Его сценарии используют синтетические
+transcript и заведомо отсутствующий writer CLI, не выполняют запросы к моделям,
+не устанавливают плагины и не изменяют пользовательскую конфигурацию.
 
 ## Проверка перед выпуском
 

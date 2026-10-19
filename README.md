@@ -23,7 +23,7 @@ Handoff для **Codex** и **Claude Code** без compact.
 В `handoff-settings.json` настройка `continuation.codex` принимает `codex-desktop`
 или `manual`; `continuation.claude` поддерживает только `manual`.
 Без секции `continuation` обе среды используют ручную передачу. Настройка desktop
-разрешает плагину создать чат после готовности handoff. Отдельный Python hook
+разрешает плагину создать чат после готовности handoff. Отдельный процесс hook
 не вызывает приложение: он передаёт основной модели точные инструкции и разрешает
 только соответствующие вызовы приложения с проверенными аргументами.
 
@@ -33,9 +33,9 @@ Handoff для **Codex** и **Claude Code** без compact.
 
 Состояние и явный повтор доставки без повторного writer:
 
-```sh
-python scripts/handoff.py status --session-dir "<абсолютный каталог handoff>"
-python scripts/handoff.py retry-continuation --session-dir "<абсолютный каталог handoff>"
+```powershell
+& '<каталог установленного плагина>/bin/cc-autohandoff.exe' status --session-dir '<абсолютный каталог handoff>'
+& '<каталог установленного плагина>/bin/cc-autohandoff.exe' retry-continuation --session-dir '<абсолютный каталог handoff>'
 ```
 
 Если результат создания неизвестен, сначала проверь список чатов. Только убедившись,
@@ -44,31 +44,77 @@ python scripts/handoff.py retry-continuation --session-dir "<абсолютны�
 инструкции для новой попытки. Retry сам не создаёт чат. Если чат создан, но открыть его
 не удалось, используй карточку чата; повтор доставки разрешает лишь открытие этого же чата.
 
-## Установка
+## Установка готового пакета Windows x64
 
-Нужны Python **3.11+** и авторизованный CLI соответствующей среды.
-Для Claude Code команда `python` должна быть доступна в `PATH`.
+Python устанавливать не нужно: пакет содержит `bin/cc-autohandoff.exe` и его библиотеки.
+Нужен установленный и авторизованный CLI соответствующей среды с доступом к фиксированной
+модели writer. Для Claude Code нужна версия **2.1.295+** с `onFailure: block`, exec-form hooks
+и блокировкой `PreCompact`. Другие ОС и Windows ARM64 готовым пакетом пока не поддерживаются.
 
-**Claude Code** — из корня репозитория:
+Готовый локальный marketplace расположен в `dist/plugin` после сборки разработчиком.
+Его можно предоставить пользователю как заранее подготовленный каталог, например в общей
+локальной папке. Установка проходит через встроенный магазин; ручная распаковка архива
+для такого локального источника не нужна. Удалённый marketplace с готовыми бинарниками
+пока не опубликован: добавление GitHub-репозитория исходников не заменяет сборку.
 
-```sh
-claude --plugin-dir .
+**Codex desktop** — добавь каталог готового marketplace из PowerShell:
+
+```powershell
+codex plugin marketplace add 'G:\_CODING\cc-autohandoff\dist\plugin'
 ```
 
-**Codex desktop** — добавь локальный marketplace:
+Перезапусти приложение, выбери источник **Context Handoff** в каталоге плагинов и установи
+`cc-autohandoff`. Проверь и доверь текущее определение hooks, затем открой новый чат.
+Само включение плагина не означает доверия к hooks.
+[Официальная инструкция Codex](https://developers.openai.com/plugins/build/plugins).
 
-```sh
-codex plugin marketplace add .
+**Claude Code** — добавь тот же каталог и установи плагин:
+
+```powershell
+claude plugin marketplace add 'G:\_CODING\cc-autohandoff\dist\plugin'
+claude plugin install cc-autohandoff@cc-autohandoff
 ```
 
-Перезапусти приложение, установи `cc-autohandoff` из этого marketplace и доверь его hooks.
+[Официальная инструкция Claude Code](https://code.claude.com/docs/en/plugin-marketplaces).
+Для временного запуска готового пакета можно использовать `claude --plugin-dir '<каталог пакета>'`.
 Не включай одновременно старый `codex-handoff` и этот плагин.
+
+Команда `retry` из уведомления восстанавливает writer после ошибки и использует встроенный
+исполняемый файл. `status` и `retry` определяют платформу по `session.json`.
+Настройки меняются в `handoff-settings.json` установленного экземпляра; изменение локального
+источника Codex требует обновления установленной копии через приложение.
 
 ## Разработка
 
 Основан на пользовательском `codex-handoff` **0.1.1**.
 Настройки: [handoff-settings.json](handoff-settings.json).
-Проверки: `python -m unittest discover -s tests -v`.
+Исходные hooks требуют Python **3.11+**, runtime использует только стандартную библиотеку.
+Для разработки исходный плагин Claude Code запускается через `claude --plugin-dir .`.
+В исходной версии вместо `bin/cc-autohandoff.exe` используй `python scripts/handoff.py`.
+
+Сборка на Windows x64 из корня репозитория:
+
+```powershell
+python -m pip install -r requirements-build.txt
+python -m unittest discover -s tests -v
+python scripts/build_plugin.py
+python scripts/check_package.py dist/plugin
+```
+
+Сборщик создаёт новый каталог `dist/plugin` и не перезаписывает существующий.
+Для повторной сборки укажи новый `--output dist/plugin-next`; при установке добавь именно
+этот каталог marketplace. Marketplace в корне репозитория указывает на стандартный `dist/plugin`.
+В пакет попадают файлы из явного списка, bundled runtime, лицензии Python/PyInstaller
+и SHA-256 manifest. Переписки, handoff и логи исключены из Git и состава пакета.
+
+`check_package.py` проверяет состав и checksums, затем копирует пакет в путь с кириллицей
+и пробелами и запускает обе конфигурации hooks без Python в `PATH`. Проверяет порог,
+ошибку отсутствующего writer, запрет compact, повторные hooks, status/retry и защиту от
+рекурсии. Это синтетическая проверка исполняемого пакета без обращения к моделям.
+Для проверки только файлов доступен `--static-only`.
+
+Workflow `.github/workflows/package.yml` собирает пакет и сохраняет artifact по ручному
+запуску или pull request; он не публикует удалённый marketplace. `dist/` не коммитится.
 
 Адаптер Claude Code покрыт локальными тестами; живой запуск Haiku ещё не проверен.
 Автопереход desktop покрыт тестами с подменёнными ответами приложения; полный живой
