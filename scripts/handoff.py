@@ -22,6 +22,11 @@ PLATFORM = "codex"
 MODELS = {"codex": "gpt-6-luna", "claude": "claude-haiku-5-5"}
 FIELDS = ("goal", "constraints", "decisions", "workspace", "changes", "validation", "pending", "next_step", "uncertainties")
 ARRAY_FIELDS = {"constraints", "decisions", "changes", "validation", "pending", "uncertainties"}
+DESKTOP_TOOLS = {
+    "projects": "mcp__codex_app__list_projects",
+    "create": "mcp__codex_app__create_thread",
+    "open": "mcp__codex_app__navigate_to_codex_page",
+}
 
 
 def settings():
@@ -32,7 +37,16 @@ def settings():
         raise ValueError("threshold_tokens must be between 1000 and 200000.")
     if not 10 <= config["writer_timeout_seconds"] <= 300:
         raise ValueError("writer_timeout_seconds must be between 10 and 300.")
+    modes = config.get("continuation", {})
+    if not isinstance(modes, dict) or set(modes) - set(MODELS):
+        raise ValueError("continuation: допустимы только ключи codex и claude.")
+    if modes.get("codex", "manual") not in ("manual", "codex-desktop") or modes.get("claude", "manual") != "manual":
+        raise ValueError("continuation: Codex поддерживает manual/codex-desktop, Claude Code — manual.")
     return config
+
+
+def continuation_mode(cfg):
+    return cfg.get("continuation", {}).get(PLATFORM, "manual")
 
 
 def atomic_write(path, text):
@@ -348,7 +362,7 @@ def render_handoff(summary, state, omissions):
     labels = {"goal": "Цель", "constraints": "Требования и ограничения", "decisions": "Принятые решения", "workspace": "Рабочая среда", "changes": "Что сделано", "validation": "Проверки и их результаты", "pending": "Незавершённая работа", "next_step": "Следующий шаг", "uncertainties": "Неопределённость"}
     parts = ["# Handoff", f"Модель подготовки: `{MODEL}`. Исходная сессия: `{state['session_id']}`.",
              f"Контекст на момент передачи: {state.get('context_tokens', 'неизвестен')} токенов. Рабочая папка: `{state['workspace']}`.",
-             "Продолжение запускается пользователем в новом чате. Исходная сессия не сжималась этим плагином."]
+             "Продолжение выполняется в новом чате. Исходная сессия не сжималась этим плагином."]
     for field in FIELDS:
         value = summary[field]
         body = "\n".join("- " + x for x in value) if isinstance(value, list) else value
@@ -399,6 +413,7 @@ def generate(state_path, cfg):
         validate_summary(summary)
         atomic_write(directory / "HANDOFF.md", render_handoff(summary, state, omissions))
         startup = (f"Прочитай handoff по абсолютному пути:\n{directory / 'HANDOFF.md'}\n\n"
+                   f"Исходная сессия: {state['session_id']}\n"
                    f"Рабочая папка: {state['workspace']}\n"
                    "Продолжай исходную задачу с указанного следующего шага, учитывая все ограничения и последние уточнения. "
                    "Сначала проверь фактическое состояние файлов. Не повторяй выполненную работу. "
@@ -417,15 +432,178 @@ def generate(state_path, cfg):
         return current
 
 
+def desktop_result(value):
+    """Decode a host tool result, not text from the source conversation."""
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, dict) or value.get("isError"):
+        raise ValueError("Инструмент приложения вернул ошибку или неподдерживаемый ответ.")
+    if isinstance(value.get("structuredContent"), dict):
+        value = value["structuredContent"]
+    elif "content" in value:
+        blocks = value["content"]
+        if not isinstance(blocks, list):
+            raise ValueError("Некорректный MCP-ответ приложения.")
+        objects = []
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type") == "text":
+                try:
+                    decoded = json.loads(block.get("text", ""))
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(decoded, dict):
+                    objects.append(decoded)
+        if len(objects) != 1:
+            raise ValueError("В MCP-ответе нет однозначного JSON-результата.")
+        value = objects[0]
+    if value.get("isError") or value.get("error") or value.get("success") is False or value.get("status") in ("error", "failed", "unavailable"):
+        raise ValueError("Приложение не подтвердило выполнение операции.")
+    return value
+
+
+def desktop_event(state, event, cfg):
+    """Called under the session lock. Reserve side effects BEFORE allowing a tool.
+
+    Returning True only releases this plugin's block; host approval policy stays intact.
+    A lost PostToolUse is deliberately never retried automatically.
+    """
+    if PLATFORM != "codex" or state.get("continuation_mode") != "codex-desktop" or state["phase"] != "ready":
+        return False
+    continuation = state.setdefault("continuation", {"phase": "pending", "requested": []})
+    name = event.get("hook_event_name")
+    tool = event.get("tool_name")
+    call_id = event.get("tool_use_id")
+    arguments = event.get("tool_input")
+    stage = continuation["phase"]
+    enabled = continuation_mode(cfg) == "codex-desktop"
+    expected = {
+        "pending": (DESKTOP_TOOLS["projects"], {}, "discovering"),
+        "project_ready": (DESKTOP_TOOLS["create"], continuation.get("create_input"), "creating"),
+        "created": (DESKTOP_TOOLS["open"], {"threadId": continuation.get("thread_id")}, "opening"),
+    }.get(stage)
+    if name == "PreToolUse" and enabled and expected and tool == expected[0]:
+        if not isinstance(call_id, str) or not call_id or not isinstance(arguments, dict) or arguments != expected[1]:
+            return False
+        continuation.update(phase=expected[2], tool_use_id=call_id, tool_name=tool, started_at=time.time())
+        return True
+    if name == "PostToolUse" and stage in ("discovering", "creating", "opening"):
+        if not call_id or call_id != continuation.get("tool_use_id") or tool != continuation.get("tool_name"):
+            return False
+        directory = Path(state["directory"])
+        diagnostic = directory / ("desktop-" + stage + ".json")
+        write_json(diagnostic, event.get("tool_response"))
+        try:
+            result = desktop_result(event.get("tool_response"))
+            if stage == "discovering":
+                projects = result.get("projects")
+                if not isinstance(projects, list):
+                    raise ValueError("Приложение не вернуло список проектов.")
+                matches = [project for project in projects if isinstance(project, dict)
+                           and project.get("projectKind") == "local" and project.get("hostId") == "local"
+                           and isinstance(project.get("path"), str)
+                           and Path(project["path"]).is_absolute()
+                           and Path(project["path"]).resolve() == Path(state["workspace"]).resolve()
+                           and isinstance(project.get("projectId"), str) and project["projectId"]]
+                if len(matches) != 1:
+                    raise ValueError("Не найден единственный локальный проект с той же рабочей папкой. Открой продолжение вручную.")
+                startup = (directory / "START-NEXT-SESSION.txt").read_text(encoding="utf-8")
+                continuation.update(phase="project_ready", project_id=matches[0]["projectId"], create_input={
+                    "target": {"type": "project", "projectId": matches[0]["projectId"], "environment": {"type": "local"}},
+                    "prompt": startup,
+                })
+            elif stage == "creating":
+                thread_id = result.get("threadId")
+                client_id = result.get("clientThreadId")
+                if result.get("hostId", "local") != "local":
+                    raise ValueError("Приложение вернуло чат другого хоста.")
+                if isinstance(thread_id, str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", thread_id) and thread_id != state["session_id"]:
+                    continuation.update(phase="created", thread_id=thread_id, finished_at=time.time())
+                elif isinstance(client_id, str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", client_id):
+                    continuation.update(phase="queued", client_thread_id=client_id, finished_at=time.time())
+                else:
+                    raise ValueError("Ответ создания не содержит идентификатора нового чата. Повтор может создать дубликат.")
+            else:
+                continuation.update(phase="opened", finished_at=time.time())
+        except (OSError, TypeError, ValueError) as error:
+            continuation.update(phase=("uncertain" if stage == "creating" else "open_failed" if stage == "opening" else "failed"),
+                                error=str(error), diagnostic=str(diagnostic), finished_at=time.time())
+    # An idle/stopping parent cannot still be executing these synchronous tools.
+    if name in ("Stop", "SessionStart") and stage in ("discovering", "creating", "opening"):
+        continuation.update(phase=("uncertain" if stage == "creating" else "open_failed" if stage == "opening" else "failed"),
+                            error="Результат вызова приложения не получен. Автоматического повтора не будет.", finished_at=time.time())
+    return False
+
+
+def desktop_notice(state):
+    continuation = state.get("continuation", {})
+    stage = continuation.get("phase", "pending")
+    retry = f'python "{SCRIPT}" retry-continuation --session-dir "{state["directory"]}"'
+    if stage == "pending":
+        return ("Автопереход Codex desktop включён пользователем. Вызови только " + DESKTOP_TOOLS["projects"] +
+                " с {}. После его результата следуй следующему сообщению hook. Если инструмент недоступен, "
+                "сообщи об этом и остановись; не используй shell, App Server, fork или CLI вместо него.")
+    if stage == "project_ready":
+        return ("Создай ровно один новый чат через " + DESKTOP_TOOLS["create"] + " с точными аргументами:\n" +
+                json.dumps(continuation["create_input"], ensure_ascii=False, separators=(",", ":")) +
+                "\nЭто разрешённая пользователем доставка handoff. Не меняй prompt/target, не добавляй model/thinking. "
+                "После результата следуй следующему сообщению hook.")
+    if stage == "created":
+        return ("Новый чат создан и получил инструкции. Вызови только " + DESKTOP_TOOLS["open"] + " с " +
+                json.dumps({"threadId": continuation["thread_id"]}) + ". Затем заверши старый чат. " +
+                'В финальном ответе выведи отдельной строкой ::created-thread{threadId="' + continuation["thread_id"] + '"}.')
+    if stage in ("opened", "open_failed"):
+        return ("Новый чат создан и получил инструкции. " +
+                ("Команда открытия выполнена. " if stage == "opened" else
+                 "Открытие окна не подтверждено: " + continuation.get("error", "нет подтверждения приложения") +
+                 ". Используй карточку чата. Повтор только открытия: " + retry + ". ") +
+                'Заверши старый чат, выведи отдельной строкой ::created-thread{threadId="' + continuation["thread_id"] +
+                '"}. Повторно не создавай чат.')
+    if stage == "queued":
+        return ('Приложение поставило создание чата в очередь. Выведи ::created-thread{clientThreadId="' +
+                continuation["client_thread_id"] + '"}. Не передавай clientThreadId инструменту открытия. Не создавай чат повторно.')
+    if stage in ("discovering", "creating", "opening"):
+        return "Вызов приложения уже зарезервирован. Не повторяй его; дождись результата."
+    if stage == "uncertain":
+        retry += " --confirm-no-chat"
+        warning = "Результат создания чата неизвестен: сначала проверь список чатов, иначе повтор создаст дубликат. "
+    else:
+        warning = "Автопереход не выполнен. "
+    return (warning + continuation.get("error", "Инструмент приложения недоступен или переход не завершён.") +
+            " Артефакты handoff сохранены; можно открыть новый чат вручную. Явный повтор: " + retry + ".")
+
+
+def delivery_complete(state, last):
+    directory = Path(state["directory"])
+    if not all(str(directory / name) in last or (directory / name).as_posix() in last
+               for name in ("HANDOFF.md", "START-NEXT-SESSION.txt")):
+        return False
+    continuation = state.get("continuation", {})
+    if continuation.get("thread_id"):
+        return '::created-thread{threadId="' + continuation["thread_id"] + '"}' in last
+    if continuation.get("client_thread_id"):
+        return '::created-thread{clientThreadId="' + continuation["client_thread_id"] + '"}' in last
+    return True
+
+
 def notice(state):
     directory = Path(state["directory"])
     retry = f'python "{SCRIPT}" --platform {PLATFORM} retry --session-dir "{directory}"'
     if state["phase"] == "ready":
+        transition = desktop_notice(state) if state.get("continuation_mode") == "codex-desktop" else "Пользователь создаст новый чат вручную. Не создавай чат."
+        if state.get("continuation_mode") != "codex-desktop" and state.get("continuation"):
+            receipt = state["continuation"]
+            if receipt.get("thread_id"):
+                transition = ('Автопереход отключён, но новый чат уже создан. Не создавай его повторно. Выведи '
+                              '::created-thread{threadId="' + receipt["thread_id"] + '"}.')
+            elif receipt.get("client_thread_id"):
+                transition = ('Автопереход отключён, но создание уже поставлено в очередь. Не повторяй его. Выведи '
+                              '::created-thread{clientThreadId="' + receipt["client_thread_id"] + '"}.')
+            elif receipt.get("phase") in ("creating", "uncertain"):
+                transition = "Автопереход отключён. Результат создания чата неизвестен; проверь список чатов перед ручным созданием."
         return (f"{MODEL} подготовила handoff. Останови работу в этой сессии. "
                 f"Отправь пользователю кликабельные ссылки: [{directory / 'HANDOFF.md'}]({(directory / 'HANDOFF.md').as_posix()}) "
                 f"и [Текст для нового чата]({(directory / 'START-NEXT-SESSION.txt').as_posix()}). "
-                f"Пользователь создаст новый чат вручную. Не создавай чат и не вызывай compact. "
-                f"Цель: {state.get('goal', '')[:600]}. Следующий шаг: {state.get('next_step', '')[:600]}.")
+                f"Не вызывай compact и не продолжай исходную задачу. {transition}")
     if state["phase"] == "generating":
         return MODEL + " готовит handoff. Новую работу не начинай. Результат появится в " + str(directory)
     return (f"Handoff остановлен: {state.get('error', 'неизвестная ошибка')}. "
@@ -471,7 +649,8 @@ def handle_hook(event):
         if state["phase"] == "generating" and time.time() - state.get("started_at", 0) > cfg["writer_timeout_seconds"] + 20:
             state.update(phase="failed", error="Writer was interrupted or its hook timed out. Use the retry command.")
         if state["phase"] == "monitoring" and (compact or (state.get("context_tokens") or 0) >= cfg["threshold_tokens"]):
-            state.update(phase="generating", started_at=time.time(), trigger=event_name, threshold_tokens=cfg["threshold_tokens"])
+            state.update(phase="generating", started_at=time.time(), trigger=event_name, threshold_tokens=cfg["threshold_tokens"],
+                         continuation_mode=continuation_mode(cfg))
             if event_name == "UserPromptSubmit" and isinstance(event.get("prompt"), str):
                 state["pending_prompt"] = event["prompt"]
             if event_name == "Stop" and isinstance(event.get("last_assistant_message"), str):
@@ -482,11 +661,26 @@ def handle_hook(event):
         state = generate(state_path, cfg)
     if state["phase"] == "monitoring":
         if event_name == "SessionStart":
-            return emit_context(event_name, f"cc-autohandoff enabled: at {cfg['threshold_tokens']} active context tokens a temporary {MODEL} writer prepares HANDOFF.md. Stop after delivery; the user opens the next chat manually. Compaction is blocked. Never substitute your own summary.")
+            transition = ("После готовности handoff выполни только операции доставки через инструменты Codex desktop, указанные hook. "
+                          "Автосоздание нового чата с текстом handoff разрешено пользователем в настройках плагина. "
+                          if continuation_mode(cfg) == "codex-desktop" else "Пользователь открывает следующий чат вручную. ")
+            return emit_context(event_name, f"cc-autohandoff включён: при {cfg['threshold_tokens']} токенах текущего контекста отдельная {MODEL} готовит HANDOFF.md. "
+                                + transition + "После доставки остановись. Compact запрещён. Не подменяй writer своим резюме.")
         if state.get("context_tokens") is None and event_name in ("PreToolUse", "PostToolUse", "Stop"):
             return {"systemMessage": "Handoff: ещё нет поддерживаемых данных о токенах. Compact блокируется, порог 120к пока не подтверждён."}
         return {}
-    message = notice(state)
+    with locked(state_path.with_suffix(".lock")):
+        state = read_json(state_path)
+        released = desktop_event(state, event, cfg)
+        write_json(state_path, state)
+    if released:
+        return {}
+    desktop_enabled = state.get("continuation_mode") == "codex-desktop" and continuation_mode(cfg) == "codex-desktop"
+    if not desktop_enabled and state.get("continuation_mode") == "codex-desktop":
+        # Retain reservations/receipts, but do not request new host operations after opt-out.
+        message = notice(dict(state, continuation_mode="manual"))
+    else:
+        message = notice(state)
     if compact:
         return {"continue": False, "stopReason": message, "systemMessage": message}
     delivery_marker = "CODEX_HANDOFF_DELIVER:" + key
@@ -497,9 +691,23 @@ def handle_hook(event):
             return emit_context(event_name, message)
         return {"decision": "block", "reason": message}
     if event_name == "Stop":
+        if state["phase"] == "ready" and desktop_enabled:
+            with locked(state_path.with_suffix(".lock")):
+                fresh = read_json(state_path)
+                continuation = fresh["continuation"]
+                stage = continuation["phase"]
+                if stage in ("pending", "project_ready", "created"):
+                    requested = continuation.setdefault("requested", [])
+                    if stage not in requested:
+                        requested.append(stage)
+                        write_json(state_path, fresh)
+                        return {"decision": "block", "reason": delivery_marker + "\n" + message}
+                    continuation.update(phase="open_failed" if stage == "created" else "failed",
+                                        error="Модель не выполнила операцию приложения. Проверь доступность инструментов Codex desktop.")
+                    write_json(state_path, fresh)
+                    message = notice(fresh)
         last = str(event.get("last_assistant_message") or "")
-        delivered = str(Path(state["directory"]) / "HANDOFF.md") in last or (Path(state["directory"]) / "HANDOFF.md").as_posix() in last
-        if state["phase"] == "ready" and not delivered and not event.get("stop_hook_active"):
+        if state["phase"] == "ready" and not delivery_complete(state, last) and (desktop_enabled or not event.get("stop_hook_active")):
             with locked(state_path.with_suffix(".lock")):
                 fresh = read_json(state_path)
                 if not fresh.get("delivery_requested"):
@@ -518,9 +726,12 @@ def main():
     parser.add_argument("--platform", choices=MODELS, default="codex")
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("hook")
-    for name in ("status", "retry"):
+    for name in ("status", "retry", "retry-continuation"):
         command = sub.add_parser(name)
         command.add_argument("--session-dir", required=True, type=Path)
+        if name == "retry-continuation":
+            command.add_argument("--confirm-no-chat", action="store_true",
+                                 help="Подтвердить, что предыдущая попытка не создала чат; иначе возможен дубликат.")
     command = sub.add_parser("generate")
     command.add_argument("--transcript", required=True, type=Path)
     command.add_argument("--workspace", required=True, type=Path)
@@ -562,7 +773,29 @@ def main():
     PLATFORM = metadata.get("platform", PLATFORM)
     MODEL = MODELS[PLATFORM]
     state_path = Path(metadata["state_path"])
-    if args.action == "retry":
+    if args.action == "retry-continuation":
+        with locked(state_path.with_suffix(".lock")):
+            state = read_json(state_path)
+            if PLATFORM != "codex" or continuation_mode(settings()) != "codex-desktop" or state["phase"] != "ready" or state.get("continuation_mode") != "codex-desktop":
+                parser.error("Повтор автоперехода доступен только для готового handoff в режиме codex-desktop.")
+            continuation = state.get("continuation", {})
+            stage = continuation.get("phase", "pending")
+            if stage in ("created", "opened", "queued"):
+                parser.error("Продолжение уже создано или поставлено в очередь. Повтор запрещён.")
+            if stage in ("discovering", "creating", "opening"):
+                parser.error("Вызов приложения ещё зарезервирован. Дождись Stop hook или возобновления старого чата.")
+            if stage == "uncertain" and not args.confirm_no_chat:
+                parser.error("Сначала проверь список чатов. Если нового чата нет, повтори с --confirm-no-chat.")
+            if stage not in ("failed", "uncertain", "open_failed"):
+                parser.error("Автопереход ещё не завершился ошибкой.")
+            history = continuation.get("history", []) + [{key: value for key, value in continuation.items() if key != "history"}]
+            if stage == "open_failed":
+                continuation.update(phase="created", requested=[], history=history)
+            else:
+                continuation = {"phase": "pending", "requested": [], "history": history}
+            state.update(continuation=continuation, delivery_requested=False)
+            write_json(state_path, state)
+    elif args.action == "retry":
         with locked(state_path.with_suffix(".lock")):
             state = read_json(state_path)
             if state["phase"] == "generating" and time.time() - state.get("started_at", 0) <= settings()["writer_timeout_seconds"] + 20:

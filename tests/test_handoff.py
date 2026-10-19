@@ -75,6 +75,235 @@ class HandoffTests(unittest.TestCase):
         target.relative_to((ROOT / ".cc-autohandoff").resolve())
         shutil.rmtree(target)
 
+    def ready(self):
+        self.conversation()
+        with patch.object(handoff, "run_writer", side_effect=self.writer) as writer, patch.object(handoff.shutil, "which", return_value="codex"):
+            handoff.hook(self.event("PreToolUse", tool_name="Bash", tool_input={"command": "work"}))
+        writer.assert_called_once()
+        return self.state()[1]
+
+    def tool_event(self, event_name, kind, arguments, call_id, **extra):
+        return handoff.hook(self.event(event_name, tool_name=handoff.DESKTOP_TOOLS[kind],
+                                       tool_input=arguments, tool_use_id=call_id, **extra))
+
+    def projects(self):
+        return {"projects": [{"projectId": "local-project", "projectKind": "local", "hostId": "local",
+                              "path": str(self.workspace)}]}
+
+    def select_project(self, result=None):
+        self.assertEqual(self.tool_event("PreToolUse", "projects", {}, "projects-call"), {})
+        self.tool_event("PostToolUse", "projects", {}, "projects-call", tool_response=self.projects() if result is None else result)
+        return self.state()[1]["continuation"]
+
+    def retry_continuation(self, *flags):
+        directory = self.state()[1]["directory"]
+        with patch.object(sys, "argv", ["handoff.py", "retry-continuation", "--session-dir", directory, *flags]), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            handoff.main()
+
+    def test_desktop_delivery_and_receipts_survive_repeated_hooks(self):
+        state = self.ready()
+        wrapped = {"content": [{"type": "text", "text": json.dumps(self.projects())}]}
+        continuation = self.select_project(wrapped)
+        startup = (Path(state["directory"]) / "START-NEXT-SESSION.txt").read_text(encoding="utf-8")
+        arguments = continuation["create_input"]
+        self.assertEqual(arguments, {"target": {"type": "project", "projectId": "local-project", "environment": {"type": "local"}}, "prompt": startup})
+        self.assertEqual(self.tool_event("PreToolUse", "create", arguments, "create-call"), {})
+        for call_id in ("create-call", "another-call"):
+            self.assertEqual(self.tool_event("PreToolUse", "create", arguments, call_id)["hookSpecificOutput"]["permissionDecision"], "deny")
+        receipt = {"structuredContent": {"threadId": "new-thread", "hostId": "local"}}
+        self.tool_event("PostToolUse", "create", arguments, "stale-call", tool_response=receipt)
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "creating")
+        self.tool_event("PostToolUse", "create", arguments, "create-call", tool_response=receipt)
+        self.tool_event("PostToolUse", "projects", {}, "projects-call", tool_response=self.projects())
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "created")
+        self.assertEqual(self.tool_event("PreToolUse", "open", {"threadId": "new-thread"}, "open-call"), {})
+        self.tool_event("PostToolUse", "open", {"threadId": "new-thread"}, "open-call", tool_response={"success": True})
+        self.tool_event("PostToolUse", "create", arguments, "create-call", tool_response=receipt)
+        final = handoff.notice(self.state()[1])
+        self.assertIn('::created-thread{threadId="new-thread"}', final)
+        self.assertFalse(handoff.hook(self.event("Stop", last_assistant_message=final))["continue"])
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "opened")
+        self.assertTrue((Path(state["directory"]) / "desktop-creating.json").is_file())
+        self.assertEqual(self.state()[1]["continuation"]["thread_id"], "new-thread")
+
+    def test_desktop_only_permits_exact_delivery_arguments(self):
+        self.ready()
+        for arguments, call_id in (({"hostId": "remote"}, "call"), ({}, ""), ([], "call")):
+            self.assertEqual(self.tool_event("PreToolUse", "projects", arguments, call_id)["hookSpecificOutput"]["permissionDecision"], "deny")
+        continuation = self.select_project()
+        expected = continuation["create_input"]
+        variants = [dict(expected, model="other-model"), dict(expected, prompt="arbitrary work"),
+                    dict(expected, target={"type": "project", "projectId": "wrong-project", "environment": {"type": "local"}})]
+        for arguments in variants:
+            self.assertEqual(self.tool_event("PreToolUse", "create", arguments, "call")["hookSpecificOutput"]["permissionDecision"], "deny")
+        denied = handoff.hook(self.event("PreToolUse", tool_name="Bash", tool_use_id="shell", tool_input={"command": "codex exec task"}))
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "project_ready")
+
+    def test_desktop_rejects_missing_ambiguous_remote_or_relative_projects(self):
+        self.ready()
+        project = self.projects()["projects"][0]
+        invalid = [[], [project, project], [dict(project, hostId="remote")],
+                   [dict(project, projectKind="chatgpt")], [dict(project, path=".")],
+                   [dict(project, path=str(self.workspace.parent))]]
+        path, state = self.state()
+        for projects in invalid:
+            with self.subTest(projects=projects):
+                state["continuation"] = {"phase": "pending"}
+                handoff.write_json(path, state)
+                continuation = self.select_project({"projects": projects})
+                self.assertEqual(continuation["phase"], "failed")
+                self.assertNotIn("create_input", continuation)
+
+    def test_desktop_failed_create_requires_confirmed_manual_retry(self):
+        self.ready()
+        arguments = self.select_project()["create_input"]
+        self.tool_event("PreToolUse", "create", arguments, "create-call")
+        self.tool_event("PostToolUse", "create", arguments, "create-call", tool_response={"isError": True, "content": []})
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "uncertain")
+        with self.assertRaises(SystemExit):
+            self.retry_continuation()
+        with patch.object(handoff, "run_writer") as writer:
+            self.retry_continuation("--confirm-no-chat")
+            writer.assert_not_called()
+        continuation = self.state()[1]["continuation"]
+        self.assertEqual(continuation["phase"], "pending")
+        self.assertEqual(continuation["history"][0]["phase"], "uncertain")
+
+    def test_desktop_lost_response_is_not_retried_after_restart(self):
+        self.ready()
+        arguments = self.select_project()["create_input"]
+        self.tool_event("PreToolUse", "create", arguments, "create-call")
+        handoff.hook(self.event("SessionStart"))
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "uncertain")
+        for _ in range(3):
+            result = self.tool_event("PreToolUse", "create", arguments, "new-call")
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+        result = handoff.hook(self.event("Stop", stop_hook_active=True))
+        self.assertEqual(result["decision"], "block")
+        self.assertIn("--confirm-no-chat", result["reason"])
+        self.assertFalse(handoff.hook(self.event("Stop", stop_hook_active=True))["continue"])
+
+    def test_desktop_create_rejects_unconfirmed_results_without_duplicates(self):
+        self.ready()
+        arguments = self.select_project()["create_input"]
+        path, state = self.state()
+        for result in (None, "not json", {}, {"threadId": "session-12345"},
+                       {"threadId": "new-thread", "hostId": "remote"}, {"threadId": "bad\nidentifier"},
+                       {"content": [{"type": "text", "text": "{}"}, {"type": "text", "text": "{}"}]}):
+            with self.subTest(result=result):
+                handoff.write_json(path, state)
+                self.tool_event("PreToolUse", "create", arguments, "call")
+                self.tool_event("PostToolUse", "create", arguments, "call", tool_response=result)
+                self.assertEqual(self.state()[1]["continuation"]["phase"], "uncertain")
+
+    def test_desktop_queued_result_is_never_used_to_open_or_create_again(self):
+        self.ready()
+        arguments = self.select_project()["create_input"]
+        self.tool_event("PreToolUse", "create", arguments, "call")
+        self.tool_event("PostToolUse", "create", arguments, "call", tool_response={"clientThreadId": "queued-thread"})
+        final = handoff.notice(self.state()[1])
+        self.assertIn('::created-thread{clientThreadId="queued-thread"}', final)
+        for kind, arguments in (("open", {"threadId": "queued-thread"}), ("create", arguments)):
+            self.assertEqual(self.tool_event("PreToolUse", kind, arguments, "retry")["hookSpecificOutput"]["permissionDecision"], "deny")
+        with self.assertRaises(SystemExit):
+            self.retry_continuation("--confirm-no-chat")
+
+    def test_desktop_open_retry_preserves_created_chat(self):
+        self.ready()
+        arguments = self.select_project()["create_input"]
+        self.tool_event("PreToolUse", "create", arguments, "create-call")
+        self.tool_event("PostToolUse", "create", arguments, "create-call", tool_response={"threadId": "new-thread"})
+        with self.assertRaises(SystemExit):
+            self.retry_continuation()
+        self.tool_event("PreToolUse", "open", {"threadId": "new-thread"}, "open-call")
+        self.tool_event("PostToolUse", "open", {"threadId": "new-thread"}, "open-call", tool_response={"isError": True})
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "open_failed")
+        notice = handoff.notice(self.state()[1])
+        self.assertIn(self.state()[1]["continuation"]["error"], notice)
+        self.assertIn("retry-continuation", notice)
+        self.retry_continuation()
+        self.assertEqual(self.state()[1]["continuation"]["thread_id"], "new-thread")
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "created")
+        self.assertEqual(self.tool_event("PreToolUse", "create", arguments, "duplicate")["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(self.tool_event("PreToolUse", "open", {"threadId": "new-thread"}, "open-again"), {})
+        with self.assertRaises(SystemExit):
+            self.retry_continuation()
+
+    def test_desktop_stop_requests_are_bounded_when_tools_are_unavailable(self):
+        self.ready()
+        results = [handoff.hook(self.event("Stop", stop_hook_active=True)) for _ in range(5)]
+        self.assertEqual(sum(result.get("decision") == "block" for result in results), 2)
+        self.assertFalse(results[-1]["continue"])
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "failed")
+
+    def test_desktop_stop_can_request_all_delivery_stages(self):
+        self.ready()
+        self.assertEqual(handoff.hook(self.event("Stop"))["decision"], "block")
+        arguments = self.select_project()["create_input"]
+        self.assertEqual(handoff.hook(self.event("Stop", stop_hook_active=True))["decision"], "block")
+        self.tool_event("PreToolUse", "create", arguments, "create-call")
+        self.tool_event("PostToolUse", "create", arguments, "create-call", tool_response={"threadId": "new-thread"})
+        self.assertEqual(handoff.hook(self.event("Stop", stop_hook_active=True))["decision"], "block")
+        self.tool_event("PreToolUse", "open", {"threadId": "new-thread"}, "open-call")
+        self.tool_event("PostToolUse", "open", {"threadId": "new-thread"}, "open-call", tool_response={"success": True})
+        # A receipt must still be delivered if the model omitted its final links/card.
+        self.assertEqual(handoff.hook(self.event("Stop", stop_hook_active=True))["decision"], "block")
+        self.assertFalse(handoff.hook(self.event("Stop", stop_hook_active=True))["continue"])
+
+    def test_disabling_desktop_blocks_new_operations_but_retains_receipts(self):
+        self.ready()
+        arguments = self.select_project()["create_input"]
+        self.tool_event("PreToolUse", "create", arguments, "call")
+        manual = dict(handoff.settings(), continuation={"codex": "manual", "claude": "manual"})
+        with patch.object(handoff, "settings", return_value=manual):
+            self.tool_event("PostToolUse", "create", arguments, "call", tool_response={"threadId": "new-thread"})
+            result = self.tool_event("PreToolUse", "open", {"threadId": "new-thread"}, "open-call")
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn('::created-thread{threadId="new-thread"}', result["hookSpecificOutput"]["permissionDecisionReason"])
+            self.assertEqual(handoff.hook(self.event("Stop"))["decision"], "block")
+            with self.assertRaises(SystemExit):
+                self.retry_continuation()
+        self.assertEqual(self.state()[1]["continuation"]["thread_id"], "new-thread")
+
+    def test_manual_and_legacy_sessions_never_enable_desktop(self):
+        cfg = dict(handoff.settings(), continuation={})
+        with patch.object(handoff, "settings", return_value=cfg):
+            self.ready()
+            self.assertEqual(self.tool_event("PreToolUse", "projects", {}, "call")["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertEqual(handoff.hook(self.event("Stop"))["decision"], "block")
+            self.assertFalse(handoff.hook(self.event("Stop", stop_hook_active=True))["continue"])
+        path, state = self.state()
+        state.pop("continuation_mode")
+        handoff.write_json(path, state)
+        self.assertEqual(self.tool_event("PreToolUse", "projects", {}, "call")["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertNotIn("continuation", self.state()[1])
+
+    def test_writer_failure_still_blocks_both_platforms_and_never_delivers_desktop(self):
+        for platform in handoff.MODELS:
+            with self.subTest(platform=platform):
+                self.platform(platform)
+                self.transcript.write_bytes(b"")
+                self.conversation()
+                with patch.object(handoff, "run_writer", side_effect=RuntimeError("offline")) as writer, patch.object(handoff.shutil, "which", return_value="fake"):
+                    handoff.hook(self.event("PostToolUse"))
+                    self.assertEqual(self.state()[1]["phase"], "failed")
+                    denied = self.tool_event("PreToolUse", "projects", {}, "call")
+                    self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+                    compact = handoff.hook(self.event("PreCompact"))
+                    self.assertTrue(compact.get("decision") == "block" or compact.get("continue") is False)
+                    self.assertIn("offline", compact.get("reason", compact.get("stopReason", "")))
+                    writer.assert_called_once()
+                self.assertNotIn("continuation", self.state()[1])
+
+    def test_recursion_guard_on_both_platforms_and_flags(self):
+        for platform in handoff.MODELS:
+            self.platform(platform)
+            for flag in ("CODEX_HANDOFF_WRITER", "CC_AUTOHANDOFF_WRITER"):
+                with self.subTest(platform=platform, flag=flag), patch.dict(os.environ, {flag: "1"}), patch.object(handoff, "generate") as writer:
+                    handoff.hook(self.event("PreToolUse"))
+                    writer.assert_not_called()
+
     def test_current_usage_is_not_accumulated(self):
         self.conversation(119999)
         handoff.hook(self.event("PreToolUse"))
