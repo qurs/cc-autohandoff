@@ -68,6 +68,8 @@ def assemble(runtime, output, licenses):
         catalog["plugins"][0]["source"] = ({"source": "local", "path": "./"}
                                              if name.startswith(".agents/") else "./")
         write_json(output / name, catalog)
+    # Git must preserve the checked bytes on Windows and POSIX alike.
+    (output / ".gitattributes").write_bytes(b"* -text\n")
     checksums = {path.relative_to(output).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                  for path in sorted(output.rglob("*")) if path.is_file()}
     write_json(output / "package-checksums.json", checksums)

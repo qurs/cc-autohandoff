@@ -6,7 +6,11 @@
   "plugins": [
     {
       "name": "cc-autohandoff",
-      "source": "./dist/plugin",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/qurs/cc-autohandoff.git",
+        "ref": "windows-x64"
+      },
       "description": "Передача при 120 000 токенов контекста: GPT-6 Luna для Codex, Haiku 5.5 для Claude Code. Без compact."
     }
   ]

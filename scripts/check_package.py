@@ -39,9 +39,11 @@ def verify(package):
                 and path.suffix not in (".log", ".jsonl")
                 and path.name not in ("HANDOFF.md", "START-NEXT-SESSION.txt", "handoff.py"),
                 "В пакете найден приватный или исходный runtime-файл: " + name)
-    for name in ("bin/cc-autohandoff.exe", "scripts/hook.ps1", "licenses/Python.txt", "licenses/PyInstaller.txt",
+    for name in (".gitattributes", "bin/cc-autohandoff.exe", "scripts/hook.ps1", "licenses/Python.txt", "licenses/PyInstaller.txt",
                  "scripts/handoff-schema.json", "scripts/writer-instructions.md", "skills/handoff/SKILL.md"):
         require(name in actual, "Нет обязательного файла: " + name)
+    require((package / ".gitattributes").read_bytes() == b"* -text\n",
+            "Git должен сохранять исходные байты пакета для проверки checksums.")
     require((package / "bin/_internal").is_dir(), "Нет bundled runtime.")
     settings = read_json(package / "handoff-settings.json")
     require(settings["threshold_tokens"] == 120000 and settings["models"] == {

@@ -44,45 +44,46 @@ Handoff для **Codex** и **Claude Code** без compact.
 инструкции для новой попытки. Retry сам не создаёт чат. Если чат создан, но открыть его
 не удалось, используй карточку чата; повтор доставки разрешает лишь открытие этого же чата.
 
-## Установка готового пакета Windows x64
+## Удалённая установка Windows x64
 
 Python устанавливать не нужно: пакет содержит `bin/cc-autohandoff.exe` и его библиотеки.
 Нужен установленный и авторизованный CLI соответствующей среды с доступом к фиксированной
 модели writer. Для Claude Code нужна версия **2.1.295+** с `onFailure: block`, exec-form hooks
 и блокировкой `PreCompact`. Другие ОС и Windows ARM64 готовым пакетом пока не поддерживаются.
 
-Готовый локальный marketplace расположен в `dist/plugin` после сборки разработчиком.
-Его можно предоставить пользователю как заранее подготовленный каталог, например в общей
-локальной папке. Установка проходит через встроенный магазин; ручная распаковка архива
-для такого локального источника не нужна. Удалённый marketplace с готовыми бинарниками
-пока не опубликован: добавление GitHub-репозитория исходников не заменяет сборку.
+Marketplace находится в GitHub: `qurs/cc-autohandoff`. Он ссылается на готовый пакет
+в ветке `windows-x64` того же репозитория. Менеджер плагинов сам получает пакет через Git;
+скачивать архив, клонировать исходники и собирать плагин вручную не нужно.
 
-**Codex desktop** — добавь каталог готового marketplace из PowerShell:
+**Codex** — выполни в терминале:
 
 ```powershell
-codex plugin marketplace add 'G:\_CODING\cc-autohandoff\dist\plugin'
+codex plugin marketplace add qurs/cc-autohandoff
+codex plugin add cc-autohandoff@cc-autohandoff
 ```
 
-Перезапусти приложение, выбери источник **Context Handoff** в каталоге плагинов и установи
-`cc-autohandoff`. Проверь и доверь текущее определение hooks, затем открой новый чат.
+Вместо `qurs/cc-autohandoff` можно указать `https://github.com/qurs/cc-autohandoff.git`.
+После установки перезапусти Codex desktop. Проверь и доверь текущее определение hooks,
+затем открой новый чат.
 Само включение плагина не означает доверия к hooks.
 [Официальная инструкция Codex](https://developers.openai.com/plugins/build/plugins).
 
-**Claude Code** — добавь тот же каталог и установи плагин:
+**Claude Code** — выполни в терминале:
 
 ```powershell
-claude plugin marketplace add 'G:\_CODING\cc-autohandoff\dist\plugin'
+claude plugin marketplace add qurs/cc-autohandoff
 claude plugin install cc-autohandoff@cc-autohandoff
 ```
 
 [Официальная инструкция Claude Code](https://code.claude.com/docs/en/plugin-marketplaces).
-Для временного запуска готового пакета можно использовать `claude --plugin-dir '<каталог пакета>'`.
+Внутри Claude Code те же команды доступны как `/plugin marketplace add qurs/cc-autohandoff`
+и `/plugin install cc-autohandoff@cc-autohandoff`.
 Не включай одновременно старый `codex-handoff` и этот плагин.
 
 Команда `retry` из уведомления восстанавливает writer после ошибки и использует встроенный
 исполняемый файл. `status` и `retry` определяют платформу по `session.json`.
 Настройки меняются в `handoff-settings.json` установленного экземпляра; изменение локального
-источника Codex требует обновления установленной копии через приложение.
+источника требует обновления установленной копии через менеджер плагинов.
 
 ## Разработка
 
@@ -102,8 +103,9 @@ python scripts/check_package.py dist/plugin
 ```
 
 Сборщик создаёт новый каталог `dist/plugin` и не перезаписывает существующий.
-Для повторной сборки укажи новый `--output dist/plugin-next`; при установке добавь именно
-этот каталог marketplace. Marketplace в корне репозитория указывает на стандартный `dist/plugin`.
+Для повторной сборки укажи новый `--output dist/plugin-next`.
+Для локальной проверки разработчик может добавить `dist/plugin` как marketplace;
+пользователи устанавливают опубликованный пакет командами выше.
 В пакет попадают файлы из явного списка, bundled runtime, лицензии Python/PyInstaller
 и SHA-256 manifest. Переписки, handoff и логи исключены из Git и состава пакета.
 
@@ -113,8 +115,12 @@ python scripts/check_package.py dist/plugin
 рекурсии. Это синтетическая проверка исполняемого пакета без обращения к моделям.
 Для проверки только файлов доступен `--static-only`.
 
-Workflow `.github/workflows/package.yml` собирает пакет и сохраняет artifact по ручному
-запуску или pull request; он не публикует удалённый marketplace. `dist/` не коммитится.
+Workflow `.github/workflows/package.yml` проверяет и собирает пакет. После push в `master`
+или ручного запуска из `master` он публикует проверенный artifact в ветку `windows-x64`.
+Pull request только проверяется и собирается. Публикация идёт обычным push без force:
+в ветке пакета находятся только разрешённые файлы сборки, runtime, лицензии и checksums.
+Каталоги marketplace в `master` используют Git URL и `ref: windows-x64`; в готовом пакете
+оба каталога ссылаются на его корень. `dist/` в ветку исходников не коммитится.
 
 Адаптер Claude Code покрыт локальными тестами; живой запуск Haiku ещё не проверен.
 Автопереход desktop покрыт тестами с подменёнными ответами приложения; полный живой

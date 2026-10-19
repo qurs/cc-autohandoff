@@ -22,6 +22,17 @@ handoff = load_module("handoff")
 
 
 class PackageTests(unittest.TestCase):
+    def test_source_marketplaces_resolve_remote_package_for_both_hosts(self):
+        for name in (".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json"):
+            catalog = checker.read_json(ROOT / name)
+            self.assertEqual(catalog["name"], "cc-autohandoff")
+            self.assertEqual(len(catalog["plugins"]), 1)
+            entry = catalog["plugins"][0]
+            self.assertEqual(entry["name"], "cc-autohandoff")
+            self.assertEqual(entry["source"], {
+                "source": "url", "url": "https://github.com/qurs/cc-autohandoff.git", "ref": "windows-x64",
+            })
+
     def setUp(self):
         scratch = ROOT / ".build"
         scratch.mkdir(exist_ok=True)

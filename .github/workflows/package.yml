@@ -1,8 +1,14 @@
-name: Проверка автономного пакета
+name: Сборка и публикация удалённого плагина
 
 on:
   workflow_dispatch:
   pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -24,3 +30,42 @@ jobs:
           name: cc-autohandoff-windows-x64
           path: dist/plugin/
           include-hidden-files: true
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: publication
+      - uses: actions/download-artifact@v4
+        with:
+          name: cc-autohandoff-windows-x64
+          path: package
+      - name: Проверить скачанный пакет
+        run: python publication/scripts/check_package.py package --static-only
+      - name: Опубликовать готовый пакет в ветку windows-x64
+        working-directory: publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin windows-x64; then
+            git fetch --depth=1 origin windows-x64
+            git checkout --detach FETCH_HEAD
+            git rm -r --ignore-unmatch .
+          else
+            result=$?
+            if [ "$result" -ne 2 ]; then exit "$result"; fi
+            git checkout --orphan windows-x64
+            git rm -r --ignore-unmatch .
+          fi
+          cp -a ../package/. .
+          git add --all
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Publish Windows x64 package from ${GITHUB_SHA}"
+          git push origin HEAD:refs/heads/windows-x64
