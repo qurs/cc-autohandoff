@@ -1,0 +1,13 @@
+{
+  "name": "cc-autohandoff",
+  "owner": {
+    "name": "qurs"
+  },
+  "plugins": [
+    {
+      "name": "cc-autohandoff",
+      "source": "./",
+      "description": "Handoff at 120k context tokens: GPT-6 Luna for Codex, Haiku 5.5 for Claude Code. No compact."
+    }
+  ]
+}

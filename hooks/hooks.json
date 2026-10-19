@@ -1,0 +1,106 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py",
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py",
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py",
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py",
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py",
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.py",
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "cc-autohandoff",
+  "interface": { "displayName": "Context Handoff" },
+  "plugins": [
+    {
+      "name": "cc-autohandoff",
+      "source": { "source": "local", "path": "./" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

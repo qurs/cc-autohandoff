@@ -1,0 +1,86 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: checking session"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: checking context"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: GPT-6 Luna at 120k"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: GPT-6 Luna at 120k"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "timeout": 330,
+            "statusMessage": "Handoff: finishing session"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
+            "timeout": 330,
+            "statusMessage": "Handoff: blocking compaction"
+          }
+        ]
+      }
+    ]
+  }
+}

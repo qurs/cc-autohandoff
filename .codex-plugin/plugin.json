@@ -1,0 +1,11 @@
+{
+  "name": "cc-autohandoff",
+  "version": "0.2.0",
+  "description": "Handoff at 120k context tokens: GPT-6 Luna for Codex, Haiku 5.5 for Claude Code. No compact.",
+  "skills": "./skills/",
+  "hooks": "./hooks/codex.json",
+  "interface": {
+    "displayName": "Context Handoff",
+    "shortDescription": "Handoff at 120k, without compact"
+  }
+}
