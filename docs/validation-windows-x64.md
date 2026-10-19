@@ -1,30 +1,42 @@
-# Проверка пакета Windows x64
+# Проверка удалённой установки Windows x64
 
 Проверено 20 октября 2026 года в `G:\_CODING\cc-autohandoff`.
 Среда сборки: Windows x64, Python 3.12.10, PyInstaller 6.22.3.
 
-- `python -m unittest discover -s tests -v`: 39 тестов, успешно.
-- `python scripts/build_plugin.py`: создан автономный пакет `dist/plugin`,
-  executable и библиотеки Python находятся в `bin/`.
-- `python scripts/check_package.py dist/plugin`: 72 файла прошли проверку SHA-256
+- `python -m unittest discover -s tests -v`: 40 тестов, успешно.
+- Собран автономный пакет **0.3.1** в `dist/plugin-publish` с помощью
+  `build_plugin.py` и `assemble`; executable и библиотеки Python находятся в `bin/`.
+- `python scripts/check_package.py dist/plugin-publish`: 73 файла прошли проверку SHA-256
   и структуры. Затем обе конфигурации hooks запущены из скопированного пакета
   в каталоге с пробелами и кириллицей, без Python в `PATH`.
 - В исполняемом пакете проверены граница 119999/120000 токенов, ошибка недоступного
   writer CLI, запрет ручного и автоматического compact, блокировка нового prompt,
   повтор Stop без цикла, отсутствие автоматического повторного writer,
   обе переменные защиты от рекурсии, status и явный retry с восстановлением платформы.
-- Реальный Codex CLI успешно выполнил `plugin marketplace add` и `list` для
-  `dist/plugin` с отдельным `CODEX_HOME` внутри `.build/`. Пользовательская
-  конфигурация marketplace и установленные плагины не менялись.
+- Пакет **0.3.1** опубликован через Git в ветку `windows-x64` репозитория
+  `qurs/cc-autohandoff`; оба каталога marketplace в `master` ссылаются на эту ветку.
+- Реальный Codex CLI успешно выполнил обе команды удалённой установки:
+  `codex plugin marketplace add qurs/cc-autohandoff` и
+  `codex plugin add cc-autohandoff@cc-autohandoff`. Установлена версия **0.3.1**.
+  `marketplace list --json` подтвердил Git-источник
+  `https://github.com/qurs/cc-autohandoff.git`.
+- Проверка выполнялась с отдельным `CODEX_HOME` в `.build/remote-two-commands`.
+  Пользовательская конфигурация marketplace и установленные плагины не менялись.
+- Codex сохраняет служебный `.git` в установленной копии Git-плагина.
+  Для проверки пакета скопированы все установленные файлы, кроме этого каталога,
+  в `.build/remote-two-commands-payload`. Проверка SHA-256 всех 73 файлов и запуск
+  hooks обеих платформ без Python прошли повторно именно для полученного через Git пакета.
 
 Transcript для тестов синтетические. Writer CLI намеренно отсутствует в сценарии
 пакетной проверки; ни Luna, ни Haiku не запускались. Успешная подготовка handoff
 и доставка через инструменты приложения покрыты unit-тестами с подменёнными ответами.
 
-Установка из каталога в Codex desktop, обзор и доверие hooks в UI, полный цикл
+Обзор и доверие hooks в Codex desktop UI, полный цикл
 с живой моделью и Claude Code остаются непроверенными. Claude Code CLI на этой машине
 не найден. Эти ограничения не позволяют считать интеграцию с обеими средами
 полностью проверенной перед выпуском.
 
-Удалённый marketplace и бинарники не опубликованы. Workflow подготовлен только
-для сборки artifact; запуск GitHub Actions в рамках этой проверки не выполнялся.
+Workflow теперь публикует проверенный artifact в ветку пакета после push в `master`
+или ручного запуска из `master`. Первичная публикация выполнена напрямую через Git
+после локальной проверки пакета. Установка Claude Code через удалённый marketplace
+остаётся непроверенной: CLI отсутствует на этой машине.

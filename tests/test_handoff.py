@@ -491,10 +491,10 @@ class HandoffTests(unittest.TestCase):
             self.assertTrue(output.get("decision") == "block" or output.get("continue") is False)
 
     def test_plugin_paths_and_hook_platforms(self):
-        codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
+        codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(codex["hooks"], "./hooks/codex.json")
         for name, platform in (("codex.json", "codex"), ("hooks.json", "claude")):
-            hooks = json.loads((ROOT / "hooks" / name).read_text())["hooks"]
+            hooks = json.loads((ROOT / "hooks" / name).read_text(encoding="utf-8"))["hooks"]
             self.assertIn("PreCompact", hooks)
             for entries in hooks.values():
                 hook = entries[0]["hooks"][0]
