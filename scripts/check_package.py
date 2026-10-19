@@ -90,20 +90,27 @@ def temporary_workspace():
         shutil.rmtree(target)
 
 
+def smoke_environment(work):
+    env = {key: value for key, value in os.environ.items() if key not in (
+        "CODEX_HANDOFF_WRITER", "CC_AUTOHANDOFF_WRITER", "PYTHONHOME", "PYTHONPATH")}
+    # Windows system directories can contain py.exe even on a clean CI runner.
+    empty_path = work / "empty-path"
+    empty_path.mkdir()
+    env.update(PATH=str(empty_path), CODEX_HOME=str(work / "codex home"),
+               CODEX_HANDOFF_CODEX=str(work / "missing-codex.exe"),
+               CC_AUTOHANDOFF_CLAUDE=str(work / "missing-claude.exe"))
+    require(not any(shutil.which(name, path=env["PATH"]) for name in ("python", "python3", "py")),
+            "В тестовом PATH всё ещё есть Python.")
+    return env
+
+
 def smoke(package):
     require(os.name == "nt", "Запуск Windows-пакета требует Windows.")
     with temporary_workspace() as work:
         installed = work / "плагин с пробелами"
         shutil.copytree(package, installed)
-        env = {key: value for key, value in os.environ.items() if key not in (
-            "CODEX_HANDOFF_WRITER", "CC_AUTOHANDOFF_WRITER", "PYTHONHOME", "PYTHONPATH")}
-        system = Path(os.environ["SystemRoot"])
-        env.update(PATH=os.pathsep.join(map(str, (system / "System32", system,
-                   system / "System32/WindowsPowerShell/v1.0"))), CODEX_HOME=str(work / "codex home"),
-                   CODEX_HANDOFF_CODEX=str(work / "missing-codex.exe"),
-                   CC_AUTOHANDOFF_CLAUDE=str(work / "missing-claude.exe"))
-        require(not any(shutil.which(name, path=env["PATH"]) for name in ("python", "python3", "py")),
-                "В тестовом PATH всё ещё есть Python.")
+        env = smoke_environment(work)
+        powershell = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
 
         def run(command, payload=None, expected=0, flags=None):
             result = subprocess.run(command, input=None if payload is None else json.dumps(payload, ensure_ascii=False),
@@ -120,8 +127,11 @@ def smoke(package):
 
             def invoke(event, flags=None):
                 hook = hooks[event["hook_event_name"]][0]["hooks"][0]
-                command = (hook["commandWindows"].replace("${PLUGIN_ROOT}", str(installed)) if host == "codex" else
-                           [hook["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(installed)), *hook["args"]])
+                if host == "codex":
+                    command = hook["commandWindows"].replace("${PLUGIN_ROOT}", str(installed))
+                    command = command.replace("powershell.exe ", subprocess.list2cmdline([str(powershell)]) + " ", 1)
+                else:
+                    command = [hook["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(installed)), *hook["args"]]
                 return run(command, event, flags=flags)
 
             def append_usage(tokens, first=False):

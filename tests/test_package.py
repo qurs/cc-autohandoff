@@ -60,6 +60,19 @@ class PackageTests(unittest.TestCase):
     def assemble(self):
         return builder.assemble(self.runtime, self.output, self.licenses)
 
+    def test_smoke_path_excludes_python_launcher_in_windows_directory(self):
+        system = self.root / "Windows"
+        system.mkdir()
+        (system / "py.exe").write_bytes(b"system Python launcher fixture")
+        self.assertIsNotNone(shutil.which("py.exe", path=str(system)))
+        with patch.dict(checker.os.environ, {"SystemRoot": str(system), "PATH": str(system),
+                                           "PYTHONPATH": "ambient Python", "CC_AUTOHANDOFF_WRITER": "1"}):
+            env = checker.smoke_environment(self.root)
+        self.assertEqual(list(Path(env["PATH"]).iterdir()), [])
+        self.assertIsNone(shutil.which("py.exe", path=env["PATH"]))
+        self.assertNotIn("PYTHONPATH", env)
+        self.assertNotIn("CC_AUTOHANDOFF_WRITER", env)
+
     def cleanup_workspace(self):
         target = self.root.resolve()
         target.relative_to((ROOT / ".build").resolve())

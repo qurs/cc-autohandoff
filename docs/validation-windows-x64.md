@@ -3,7 +3,7 @@
 Проверено 20 октября 2026 года в `G:\_CODING\cc-autohandoff`.
 Среда сборки: Windows x64, Python 3.12.10, PyInstaller 6.22.3.
 
-- `python -m unittest discover -s tests -v`: 40 тестов, успешно.
+- `python -m unittest discover -s tests -v`: 41 тест, успешно.
 - Собран автономный пакет **0.3.1** в `dist/plugin-publish` с помощью
   `build_plugin.py` и `assemble`; executable и библиотеки Python находятся в `bin/`.
 - `python scripts/check_package.py dist/plugin-publish`: 73 файла прошли проверку SHA-256
@@ -40,3 +40,16 @@ Workflow теперь публикует проверенный artifact в ве
 или ручного запуска из `master`. Первичная публикация выполнена напрямую через Git
 после локальной проверки пакета. Установка Claude Code через удалённый marketplace
 остаётся непроверенной: CLI отсутствует на этой машине.
+
+## Исправление проверки на GitHub Actions
+
+Запуск [39343338878](https://github.com/qurs/cc-autohandoff/actions/runs/39343338878)
+для `5d45740` прошёл unit-тесты и сборку, но остановился на `check_package.py`:
+в системных каталогах Windows runner обнаружился Python или его launcher.
+Публикация была пропущена; в `windows-x64` оставался ранее опубликованный `ceceeee`.
+
+Проверка теперь задаёт `PATH` с одним пустым каталогом и запускает PowerShell
+по абсолютному системному пути. Регрессионный тест моделирует `py.exe` в каталоге Windows.
+Локальная повторная проверка полученного через Git пакета подтвердила checksums 73 файлов
+и синтетические hooks обеих платформ с новым окружением. Результат исправленного workflow
+нужно подтвердить отдельно после push.
