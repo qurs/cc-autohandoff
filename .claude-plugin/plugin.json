@@ -1,5 +1,5 @@
 {
   "name": "cc-autohandoff",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Передача контекста при 120 000 токенов: GPT-6 Luna в Codex, Haiku 5.5 в Claude Code. Без compact."
 }
