@@ -62,7 +62,8 @@ jobs:
             result=$?
             if [ "$result" -ne 2 ]; then exit "$result"; fi
             git checkout --orphan windows-x64
-            git rm -r --ignore-unmatch .
+            # В новой orphan-ветке исходные файлы уже находятся в индексе.
+            git rm -rf --ignore-unmatch .
           fi
           cp -a ../package/. .
           git add --all
