@@ -433,11 +433,97 @@ class HandoffTests(unittest.TestCase):
                     path, _ = self.state()
                     if path.exists():
                         path.unlink()
-                    with patch.object(handoff.shutil, "which", return_value="fake"), patch.object(handoff, "run_writer", side_effect=self.writer):
+                    with patch.object(handoff.shutil, "which", return_value="fake"), patch.object(handoff, "run_writer", side_effect=self.writer) as writer:
                         handoff.hook(self.event(event_name, **extra))
                     _, state = self.state()
-                    source = (Path(state["directory"]) / "SOURCE.jsonl").read_text(encoding="utf-8")
-                    self.assertIn(next(iter(extra.values())), source)
+                    self.assertIn(next(iter(extra.values())), writer.call_args.args[1])
+                    saved_state = path.read_text(encoding="utf-8")
+                    self.assertNotIn(next(iter(extra.values())), saved_state)
+                    self.assertFalse((Path(state["directory"]) / "SOURCE.jsonl").exists())
+
+    def test_handoff_is_self_contained_and_startup_is_english_on_both_platforms(self):
+        for platform in handoff.MODELS:
+            with self.subTest(platform=platform):
+                self.platform(platform)
+                state = self.ready()
+                directory = Path(state["directory"])
+                document = (directory / "HANDOFF.md").read_text(encoding="utf-8")
+                startup = (directory / "START-NEXT-SESSION.txt").read_text(encoding="utf-8")
+                for text in (document, startup):
+                    self.assertIn("only source of prior conversation context", text)
+                    self.assertIn("Do not open, read, search, or retrieve the previous chat", text)
+                    self.assertNotIn(str(self.transcript), text)
+                    self.assertNotIn(state["session_id"], text)
+                    self.assertNotIn("SOURCE.jsonl", text)
+                    self.assertNotIn("source-manifest.json", text)
+                self.assertTrue(startup.startswith("Read the handoff at this absolute path:"))
+                self.assertNotIn("Прочитай", startup)
+                for name in ("SOURCE.jsonl", "source-manifest.json", "writer-events.jsonl", "writer-result.json"):
+                    self.assertFalse((directory / name).exists(), name)
+
+    def test_failed_writer_keeps_no_message_copy_and_retry_requires_exact_input(self):
+        for platform in handoff.MODELS:
+            with self.subTest(platform=platform):
+                self.platform(platform)
+                self.conversation()
+                message = "PRIVATE LATEST MESSAGE"
+                with patch.object(handoff.shutil, "which", return_value="fake"), patch.object(handoff, "run_writer", side_effect=RuntimeError("offline")):
+                    handoff.hook(self.event("UserPromptSubmit", prompt=message))
+                path, state = self.state()
+                directory = Path(state["directory"])
+                for file in directory.glob("*"):
+                    if file.is_file():
+                        self.assertNotIn(message, file.read_text(encoding="utf-8"))
+                self.assertNotIn(message, path.read_text(encoding="utf-8"))
+                with patch.object(handoff, "run_writer") as writer:
+                    result = handoff.generate(path, handoff.settings())
+                    self.assertEqual(result["phase"], "failed")
+                    self.assertIn("--last-message-stdin", result["error"])
+                    handoff.generate(path, handoff.settings(), "wrong text")
+                    writer.assert_not_called()
+                with patch.object(sys, "argv", ["handoff.py", "retry", "--session-dir", str(directory), "--last-message-stdin"]), patch.object(sys, "stdin", io.StringIO(message)), patch.object(handoff.shutil, "which", return_value="fake"), patch.object(handoff, "run_writer", side_effect=self.writer) as writer, contextlib.redirect_stdout(io.StringIO()):
+                    handoff.main()
+                self.assertIn(message, writer.call_args.args[1])
+                self.assertEqual(handoff.read_json(path)["phase"], "ready")
+
+    def test_generation_removes_legacy_exports_even_when_writer_fails(self):
+        self.conversation()
+        path, key = handoff.state_path_for(self.workspace, self.transcript, "session-12345")
+        directory = self.workspace / ".cc-autohandoff" / key
+        directory.mkdir(parents=True)
+        for name in ("SOURCE.jsonl", "source-manifest.json", "writer-events.jsonl", "writer-errors.log", "writer-result.json"):
+            (directory / name).write_text("PRIVATE OLD CHAT", encoding="utf-8")
+        with patch.object(handoff.shutil, "which", return_value=None):
+            handoff.hook(self.event("PreToolUse"))
+        self.assertEqual(self.state()[1]["phase"], "failed")
+        for file in directory.glob("*"):
+            self.assertNotIn("PRIVATE OLD CHAT", file.read_text(encoding="utf-8"))
+
+    def test_writer_cannot_publish_source_transcript_reference(self):
+        self.conversation()
+        def unsafe_writer(command, prompt, directory, timeout):
+            handoff.write_json(directory / "writer-result.json", dict(self.summary(), next_step=str(self.transcript)))
+        with patch.object(handoff.shutil, "which", return_value="fake"), patch.object(handoff, "run_writer", side_effect=unsafe_writer):
+            handoff.hook(self.event("PreToolUse"))
+        state = self.state()[1]
+        self.assertEqual(state["phase"], "failed")
+        self.assertFalse((Path(state["directory"]) / "HANDOFF.md").exists())
+        self.assertFalse((Path(state["directory"]) / "writer-result.json").exists())
+
+    def test_writer_diagnostics_never_persist_echoed_source(self):
+        for platform in handoff.MODELS:
+            for exit_code in (0, 1):
+                with self.subTest(platform=platform, exit_code=exit_code):
+                    self.platform(platform)
+                    script = self.workspace / "echo writer.py"
+                    script.write_text("import sys\ntext = sys.stdin.read()\nprint(text)\nprint(text, file=sys.stderr)\nsys.exit(" + str(exit_code) + ")\n", encoding="utf-8")
+                    expected_error = RuntimeError if exit_code else ValueError if platform == "claude" else None
+                    with self.assertRaises(expected_error) if expected_error else contextlib.nullcontext():
+                        handoff.run_writer([sys.executable, str(script)], "PRIVATE SOURCE", self.workspace, 10)
+                    self.assertFalse((self.workspace / "writer-events.jsonl").exists())
+                    diagnostic = (self.workspace / "writer-errors.log").read_text(encoding="utf-8")
+                    self.assertNotIn("PRIVATE SOURCE", diagnostic)
+                    self.assertEqual(json.loads(diagnostic)["exit_code"], exit_code)
 
     def test_writer_recursion_guard(self):
         with patch.dict(os.environ, {"CC_AUTOHANDOFF_WRITER": "1"}), patch.object(handoff, "settings") as settings:
