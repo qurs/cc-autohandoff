@@ -1,0 +1,86 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/cc-autohandoff.exe\" hook",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}/scripts/hook.ps1\"",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: проверка контекста и передачи"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/cc-autohandoff.exe\" hook",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}/scripts/hook.ps1\"",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: проверка контекста и передачи"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/cc-autohandoff.exe\" hook",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}/scripts/hook.ps1\"",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: проверка контекста и передачи"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/cc-autohandoff.exe\" hook",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}/scripts/hook.ps1\"",
+            "timeout": 330,
+            "additionalContextLimit": 1800,
+            "statusMessage": "Handoff: проверка контекста и передачи"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/cc-autohandoff.exe\" hook",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}/scripts/hook.ps1\"",
+            "timeout": 330,
+            "statusMessage": "Handoff: проверка контекста и передачи"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/cc-autohandoff.exe\" hook",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}/scripts/hook.ps1\"",
+            "timeout": 330,
+            "statusMessage": "Handoff: проверка контекста и передачи"
+          }
+        ]
+      }
+    ]
+  }
+}

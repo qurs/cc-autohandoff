@@ -1,0 +1,103 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "--platform",
+              "claude",
+              "hook"
+            ],
+            "timeout": 330,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}

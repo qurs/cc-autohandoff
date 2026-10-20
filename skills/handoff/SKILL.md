@@ -1,0 +1,37 @@
+---
+name: handoff
+description: Просмотр и повтор handoff в Codex или Claude Code, ручной запуск writer и восстановление доставки в Codex desktop.
+---
+
+Hooks `cc-autohandoff` готовят handoff отдельной **gpt-6-luna** в Codex или
+**claude-haiku-5-5** в Claude Code. Не пиши резюме вместо writer, не заменяй его модель,
+не вызывай compact или fork. После порога не продолжай исходную задачу.
+
+Уведомление hook содержит каталог и команду retry. Для сбоя writer выполни эту команду
+один раз. В готовом пакете Windows x64 используй PowerShell и встроенный исполняемый файл:
+`& '<plugin-root>/bin/cc-autohandoff.exe' status --session-dir '<directory>'`.
+Ручная генерация: `& '<plugin-root>/bin/cc-autohandoff.exe' --platform codex generate --transcript '<absolute-jsonl-path>' --workspace '<absolute-workspace>'`;
+для Claude Code укажи `--platform claude`. Установка Python не нужна.
+В исходной версии для разработчиков вместо исполняемого файла запускают
+`python <plugin-root>/scripts/handoff.py`; исходные hooks требуют Python 3.11+.
+Корень плагина расположен на два уровня выше каталога этого навыка. Пути с пробелами
+заключай в кавычки. Status и retry восстанавливают платформу из метаданных сессии.
+
+После готовности дай абсолютные кликабельные ссылки на `HANDOFF.md` и
+`START-NEXT-SESSION.txt`. В Claude Code и режиме `manual` пользователь сам открывает
+новый чат и вставляет стартовый текст. В Codex desktop при включённом `codex-desktop`
+разрешены только запрошенные hook операции доставки через `list_projects`,
+`create_thread`, `navigate_to_codex_page`, с точными аргументами hook. Не используй shell,
+App Server, fork или отдельную рабочую CLI-сессию вместо инструментов приложения.
+После подтверждения создания выведи карточку `::created-thread{threadId="..."}`;
+для очереди используй `clientThreadId`, не передавая его инструменту открытия.
+
+При сбое доставки сообщи ошибку и сохрани ссылки. Явный повтор:
+`& '<plugin-root>/bin/cc-autohandoff.exe' retry-continuation --session-dir '<directory>'`.
+Если создание могло выполниться, сначала проверь список чатов; только после проверки
+отсутствия продолжения допустим `--confirm-no-chat`. Не повторяй создание с известным
+`threadId` или `clientThreadId`. После retry пользователь отправляет в старый чат
+`CODEX_HANDOFF_DELIVER:<имя каталога handoff>`. Команда сама не создаёт чат.
+
+При сбое writer сообщи ошибку и команду retry. Не выдавай исходную переписку за готовый
+handoff. После доставки остановись.

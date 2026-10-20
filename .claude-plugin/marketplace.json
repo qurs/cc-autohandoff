@@ -1,0 +1,13 @@
+{
+  "name": "cc-autohandoff",
+  "owner": {
+    "name": "qurs"
+  },
+  "plugins": [
+    {
+      "name": "cc-autohandoff",
+      "source": "./",
+      "description": "Передача при 120 000 токенов контекста: GPT-6 Luna для Codex, Haiku 5.5 для Claude Code. Без compact."
+    }
+  ]
+}
