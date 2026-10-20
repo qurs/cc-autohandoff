@@ -12,6 +12,12 @@
 
 ## Установка
 
+Добавь в `.gitignore` проекта:
+```
+.cc-autohandoff/
+.codex-handoff/
+```
+
 **Codex** — выполни в терминале:
 
 ```powershell
