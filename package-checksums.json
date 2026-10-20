@@ -52,7 +52,7 @@
   "bin/_internal/api-ms-win-crt-string-l1-1-0.dll": "25b8f83a7767211b11132775a0e27a45aa4ec8ab4e6572599f9c172ae3606b40",
   "bin/_internal/api-ms-win-crt-time-l1-1-0.dll": "7c7f6393f06de11750adb09cc5698ae55cd9fb27b2e51e207286feb1b5b2b156",
   "bin/_internal/api-ms-win-crt-utility-l1-1-0.dll": "d8ba5f17b9ffcbf3aeaf3fa1da226832d2fa90f81acce0cd669464e76ce434ac",
-  "bin/_internal/base_library.zip": "0050881cdc87feb9b107f54e4dfd58cbbc8dd718787b056a18fe4bf86f18f336",
+  "bin/_internal/base_library.zip": "112e76154cad941de181e970b4455d78a2b6b20a282d213f508457ff99dc8163",
   "bin/_internal/libcrypto-3.dll": "05fe080eab7fc535c51e10c1bd76a2f3e6217f9c91a25034774588881c3f99de",
   "bin/_internal/libffi-8.dll": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
   "bin/_internal/python311.dll": "0817a2a657a24c0d5fbb60df56960f42fc66b3039d522ec952dab83e2d869364",
@@ -60,8 +60,8 @@
   "bin/_internal/ucrtbase.dll": "2e5fb14b7bf8540278f3614a12f0226e56a7cc9e64b81cbd976c6fcf2f71cbfb",
   "bin/_internal/unicodedata.pyd": "37c68617fa02a2cadced17ef724e2d450ef12a8a37215da789a4679fde1c5c02",
   "bin/_internal/VCRUNTIME140.dll": "4d292623516f65c80482081e62d5dadb759dc16e851de5db24c3cbb57b87db83",
-  "bin/cc-autohandoff.exe": "8bf074a101b49288f67093c3fd53aac3a53d43f8d2509aaa52cc7953d555f8c2",
-  "docs/architecture.md": "a6562c641aabbccb0c5081e19967107907317044bec92426cf83bad8ab52195b",
+  "bin/cc-autohandoff.exe": "44be657d366bc7023acc9c75e32c3db3f518768d287a19466e69aaf07ddfac35",
+  "docs/architecture.md": "9a4633b89e67e3edf045476c6213d6c2229c3e7d79a1206447ae23da63c23c20",
   "handoff-settings.json": "0c1aed0d151f49f98f59cacc64c5b10525518706237acb20ae68c9abbcbeeeb3",
   "hooks/codex.json": "e2dcb9b50ad083b1f42a8795833bd45ff26f91d092b23a931c77c6b1c6f5736e",
   "hooks/hooks.json": "6e348eeb5aba172ccbcfbcee493094df2f46a5500003eb47d309f1c09f1fb820",
@@ -70,6 +70,6 @@
   "README.md": "99e126885bf19e1c7e241998dad04359cc545415aca140edda1488b9a474b387",
   "scripts/handoff-schema.json": "265246075e3b7d5b89db634d8b4fda56cc34791a248012e1673cffad5eb347a1",
   "scripts/hook.ps1": "3f1cd657ffc54d4d3676bf6394f8f8f9b7165b3196213de9b007b343c5f3786a",
-  "scripts/writer-instructions.md": "3973b6210f98a2170cfcb37661c4300b0d6f7decd30e9e0144b2fc490b4a77a1",
+  "scripts/writer-instructions.md": "09849f639086121dbe509564f9eb9c63df96f8d29bf70a526cb3fc548af5c0b6",
   "skills/handoff/SKILL.md": "38b061eb6c40eaeb5403738d16f3c54d89394f965e8ce0c254bf744ec55635f6"
 }
