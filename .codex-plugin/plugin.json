@@ -1,6 +1,6 @@
 {
   "name": "cc-autohandoff",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Передача контекста при 150 000 токенов: GPT-6 Luna в Codex, Haiku 5.5 в Claude Code. Без compact.",
   "skills": "./skills/",
   "hooks": "./hooks/codex.json",

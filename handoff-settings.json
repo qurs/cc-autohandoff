@@ -5,7 +5,7 @@
   "tool_output_chars": 12000,
   "continuation": {
     "codex": "codex-desktop",
-    "claude": "manual"
+    "claude": "claude-desktop"
   },
   "models": {
     "codex": "gpt-6-luna",

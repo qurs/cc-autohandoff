@@ -25,11 +25,16 @@ class HandoffTests(unittest.TestCase):
         self.transcript = self.workspace / "session.jsonl"
         self.transcript.touch()
         env = {key: value for key, value in os.environ.items()
-               if key not in ("CODEX_HANDOFF_WRITER", "CC_AUTOHANDOFF_WRITER")}
+               if key not in ("CODEX_HANDOFF_WRITER", "CC_AUTOHANDOFF_WRITER", "CC_AUTOHANDOFF_CLAUDE",
+                              "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_ENTRYPOINT")}
         env.update(PLUGIN_DATA=str(self.workspace / "plugin data"), CODEX_HOME=str(self.workspace / "codex home"))
         self.env_patch = patch.dict(os.environ, env, clear=True)
         self.env_patch.start()
         self.addCleanup(self.env_patch.stop)
+        self.writer_preflight = handoff.writer_preflight
+        self.preflight_patch = patch.object(handoff, "writer_preflight", return_value=None)
+        self.preflight_patch.start()
+        self.addCleanup(self.preflight_patch.stop)
         self.platform_patch = patch.multiple(handoff, PLATFORM="codex", MODEL="gpt-6-luna")
         self.platform_patch.start()
         self.addCleanup(self.platform_patch.stop)
@@ -295,6 +300,164 @@ class HandoffTests(unittest.TestCase):
                     self.assertIn("offline", compact.get("reason", compact.get("stopReason", "")))
                     writer.assert_called_once()
                 self.assertNotIn("continuation", self.state()[1])
+
+    def claude_desktop(self):
+        self.platform("claude")
+        entrypoint = patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "claude-desktop"})
+        entrypoint.start()
+        self.addCleanup(entrypoint.stop)
+        self.conversation()
+        with patch.object(handoff, "run_writer", side_effect=self.writer), patch.object(handoff.shutil, "which", return_value="claude"):
+            handoff.hook(self.event("PreToolUse", tool_name="Bash", tool_input={"command": "work"}))
+        state = self.state()[1]
+        self.assertEqual(state["continuation_mode"], "claude-desktop")
+        return state
+
+    def session_tool(self, event_name, kind, arguments, call_id, **extra):
+        return handoff.hook(self.event(event_name, tool_name=handoff.CLAUDE_DESKTOP_TOOLS[kind],
+                                       tool_input=arguments, tool_use_id=call_id, **extra))
+
+    def denied(self, result):
+        return result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_claude_desktop_creates_one_session_and_requires_its_link(self):
+        state = self.claude_desktop()
+        directory = Path(state["directory"])
+        arguments = handoff.claude_create_input(state)
+        self.assertEqual(arguments["prompt"], (directory / "START-NEXT-SESSION.txt").read_text(encoding="utf-8"))
+        self.assertEqual((arguments["initiation"], arguments["context"], arguments["use_worktree"]), ("user_asked", "fresh", False))
+        stop = handoff.hook(self.event("Stop"))
+        self.assertEqual(stop["decision"], "block")
+        self.assertIn(json.dumps(arguments, ensure_ascii=False, separators=(",", ":")), stop["reason"])
+        load = {"query": "select:" + handoff.CLAUDE_DESKTOP_TOOLS["create"], "max_results": 1}
+        self.assertEqual(self.session_tool("PreToolUse", "search", load, "search-call"), {})
+        self.assertTrue(self.denied(self.session_tool("PreToolUse", "search", {"query": "select:Bash"}, "other-search")))
+        self.assertEqual(self.session_tool("PreToolUse", "create", arguments, "create-call"), {})
+        self.assertTrue(self.denied(self.session_tool("PreToolUse", "create", arguments, "duplicate")))
+        ref = "local_0123abcd-4567-89ef-0123-456789abcdef"
+        receipt = {"content": [{"type": "text", "text": "Started session " + ref}]}
+        self.session_tool("PostToolUse", "create", arguments, "stale-call", tool_response=receipt)
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "creating")
+        self.session_tool("PostToolUse", "create", arguments, "create-call", tool_response=receipt)
+        continuation = self.state()[1]["continuation"]
+        self.assertEqual((continuation["phase"], continuation["session_ref"]), ("created", ref))
+        self.assertTrue((directory / "desktop-creating.json").is_file())
+        self.assertIn("(#" + ref + ")", handoff.notice(self.state()[1]))
+        self.assertTrue(self.denied(self.session_tool("PreToolUse", "create", arguments, "after-create")))
+        links = f"{directory / 'HANDOFF.md'} {directory / 'START-NEXT-SESSION.txt'}"
+        self.assertEqual(handoff.hook(self.event("Stop", stop_hook_active=True, last_assistant_message=links))["decision"], "block")
+        final = handoff.hook(self.event("Stop", stop_hook_active=True, last_assistant_message=links + " [Новая сессия](#" + ref + ")"))
+        self.assertFalse(final["continue"])
+        with self.assertRaises(SystemExit):
+            self.retry_continuation("--confirm-no-chat")
+
+    def test_claude_desktop_only_permits_exact_session_arguments(self):
+        state = self.claude_desktop()
+        expected = handoff.claude_create_input(state)
+        variants = [(dict(expected, prompt="arbitrary work"), "call"), (dict(expected, use_worktree=True), "call"),
+                    (dict(expected, model="other-model"), "call"), (dict(expected, context="fork"), "call"),
+                    (expected, ""), ([], "call")]
+        for arguments, call_id in variants:
+            with self.subTest(arguments=arguments, call_id=call_id):
+                self.assertTrue(self.denied(self.session_tool("PreToolUse", "create", arguments, call_id)))
+        self.assertTrue(self.denied(handoff.hook(self.event("PreToolUse", tool_name="Bash", tool_use_id="shell",
+                                                            tool_input={"command": "claude -p task"}))))
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "pending")
+
+    def test_claude_desktop_unconfirmed_results_require_confirmed_retry(self):
+        state = self.claude_desktop()
+        arguments = handoff.claude_create_input(state)
+        ref, other = "local_0123abcd-4567", "local_89efabcd-0123"
+        path, base = self.state()
+        for response in (None, "no identifier", {}, {"isError": True, "content": ref}, {"first": ref, "second": other}):
+            with self.subTest(response=response):
+                handoff.write_json(path, base)
+                self.session_tool("PreToolUse", "create", arguments, "call")
+                self.session_tool("PostToolUse", "create", arguments, "call", tool_response=response)
+                continuation = self.state()[1]["continuation"]
+                self.assertEqual(continuation["phase"], "uncertain")
+                self.assertNotIn("session_ref", continuation)
+        self.assertTrue(self.denied(self.session_tool("PreToolUse", "create", arguments, "retry")))
+        self.assertIn("--confirm-no-chat", handoff.notice(self.state()[1]))
+        with self.assertRaises(SystemExit):
+            self.retry_continuation()
+        with patch.object(handoff, "run_writer") as writer:
+            self.retry_continuation("--confirm-no-chat")
+            writer.assert_not_called()
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "pending")
+        self.assertEqual(self.session_tool("PreToolUse", "create", arguments, "confirmed"), {})
+
+    def test_claude_desktop_lost_response_is_not_retried(self):
+        state = self.claude_desktop()
+        arguments = handoff.claude_create_input(state)
+        self.session_tool("PreToolUse", "create", arguments, "create-call")
+        result = handoff.hook(self.event("Stop", stop_hook_active=True))
+        self.assertEqual(self.state()[1]["continuation"]["phase"], "uncertain")
+        self.assertIn("--confirm-no-chat", result.get("reason", result.get("stopReason", "")))
+        self.assertTrue(self.denied(self.session_tool("PreToolUse", "create", arguments, "new-call")))
+
+    def test_claude_desktop_stop_request_is_bounded(self):
+        self.claude_desktop()
+        results = [handoff.hook(self.event("Stop", stop_hook_active=True)) for _ in range(4)]
+        self.assertEqual(sum(result.get("decision") == "block" for result in results), 2)
+        self.assertFalse(results[-1]["continue"])
+        continuation = self.state()[1]["continuation"]
+        self.assertEqual(continuation["phase"], "failed")
+        self.assertIn("Claude desktop", continuation["error"])
+
+    def test_claude_outside_desktop_continues_manually(self):
+        self.assertEqual(handoff.settings()["continuation"]["claude"], "claude-desktop")
+        self.platform("claude")
+        self.assertEqual(handoff.continuation_mode(handoff.settings()), "manual")
+        self.conversation()
+        with patch.object(handoff, "run_writer", side_effect=self.writer), patch.object(handoff.shutil, "which", return_value="claude"):
+            handoff.hook(self.event("PreToolUse"))
+        load = {"query": "select:" + handoff.CLAUDE_DESKTOP_TOOLS["create"]}
+        self.assertTrue(self.denied(self.session_tool("PreToolUse", "search", load, "call")))
+        self.assertEqual(self.state()[1]["continuation_mode"], "manual")
+        self.assertNotIn("continuation", self.state()[1])
+        self.assertIn("вручную", handoff.notice(self.state()[1]))
+
+    def test_retry_marker_regenerates_failed_handoff_from_chat(self):
+        for platform in handoff.MODELS:
+            with self.subTest(platform=platform):
+                self.platform(platform)
+                self.transcript.write_bytes(b"")
+                self.conversation()
+                with patch.object(handoff, "run_writer", side_effect=RuntimeError("offline")), patch.object(handoff.shutil, "which", return_value="fake"):
+                    failed = handoff.hook(self.event("PostToolUse"))
+                self.assertEqual(self.state()[1]["phase"], "failed")
+                self.assertIn(handoff.RETRY_MARKER, json.dumps(failed, ensure_ascii=False))
+                with patch.object(handoff, "run_writer", side_effect=self.writer) as writer, patch.object(handoff.shutil, "which", return_value="fake"):
+                    other = handoff.hook(self.event("UserPromptSubmit", prompt="Продолжай"))
+                    self.assertEqual(other["decision"], "block")
+                    writer.assert_not_called()
+                    result = handoff.hook(self.event("UserPromptSubmit", prompt=" " + handoff.RETRY_MARKER + "\n"))
+                    writer.assert_called_once()
+                self.assertEqual(self.state()[1]["phase"], "ready")
+                self.assertIn("HANDOFF.md", result["hookSpecificOutput"]["additionalContext"])
+                with patch.object(handoff, "run_writer") as writer:
+                    self.assertEqual(handoff.hook(self.event("UserPromptSubmit", prompt=handoff.RETRY_MARKER))["decision"], "block")
+                    writer.assert_not_called()
+                path, _ = self.state()
+                path.unlink()
+
+    def test_claude_session_start_warns_when_writer_is_not_signed_in(self):
+        self.platform("claude")
+        preflight = self.writer_preflight
+        for stdout, warned in ((b'{"loggedIn": false}', True), (b'{"loggedIn": true}', False), (b"not json", True)):
+            with self.subTest(stdout=stdout), patch.object(handoff.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout, b"")) as run, \
+                    patch.object(handoff.shutil, "which", return_value="claude"), patch.object(handoff, "writer_preflight", preflight):
+                result = handoff.hook(self.event("SessionStart"))
+                self.assertEqual(run.call_args.args[0], ["claude", "auth", "status"])
+                self.assertEqual("systemMessage" in result, warned)
+                if warned:
+                    self.assertIn("claude auth login" if b"false" in stdout else "авторизацию", result["systemMessage"])
+                    self.assertIn(result["systemMessage"].removeprefix("cc-autohandoff: "), result["hookSpecificOutput"]["additionalContext"])
+        self.platform("codex")
+        with patch.object(handoff.subprocess, "run") as run, patch.object(handoff, "writer_preflight", preflight):
+            self.assertNotIn("systemMessage", handoff.hook(self.event("SessionStart")))
+            run.assert_not_called()
 
     def test_recursion_guard_on_both_platforms_and_flags(self):
         for platform in handoff.MODELS:
