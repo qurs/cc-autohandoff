@@ -1,11 +1,11 @@
 {
-  "threshold_tokens": 120000,
+  "threshold_tokens": 150000,
   "writer_timeout_seconds": 300,
   "max_source_chars": 600000,
   "tool_output_chars": 12000,
   "continuation": {
     "codex": "codex-desktop",
-    "claude": "manual"
+    "claude": "claude-desktop"
   },
   "models": {
     "codex": "gpt-6-luna",
