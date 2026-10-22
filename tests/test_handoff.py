@@ -26,7 +26,7 @@ class HandoffTests(unittest.TestCase):
         self.transcript.touch()
         env = {key: value for key, value in os.environ.items()
                if key not in ("CODEX_HANDOFF_WRITER", "CC_AUTOHANDOFF_WRITER", "CC_AUTOHANDOFF_CLAUDE",
-                              "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_ENTRYPOINT")}
+                              "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID")}
         env.update(PLUGIN_DATA=str(self.workspace / "plugin data"), CODEX_HOME=str(self.workspace / "codex home"))
         self.env_patch = patch.dict(os.environ, env, clear=True)
         self.env_patch.start()
@@ -720,6 +720,34 @@ class HandoffTests(unittest.TestCase):
              patch.object(handoff.shutil, "which", return_value=None):
             command = handoff.writer_command(self.workspace / "writer-result.json", handoff.settings(), self.workspace)
         self.assertEqual(command[0], "C:/app/claude.exe")
+
+    def test_claude_writer_uses_parent_cli_process(self):
+        cli = self.workspace / "bundle" / ("claude.exe" if os.name == "nt" else "claude")
+        cli.parent.mkdir()
+        cli.touch()
+        with patch.dict(os.environ, {"CLAUDE_PID": "4242"}), \
+             patch.object(handoff.shutil, "which", return_value=None), \
+             patch.object(handoff, "process_image", return_value=str(cli)) as image:
+            self.assertEqual(handoff.claude_executable(), str(cli))
+        image.assert_called_once_with("4242")
+
+    def test_claude_writer_finds_installed_desktop_cli(self):
+        local = self.workspace / "local"
+        cli = local / "Claude-Data/claude_x/claude-code/2.1.0/abc/claude.exe"
+        cli.parent.mkdir(parents=True)
+        cli.touch()
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(local), "APPDATA": str(self.workspace / "roaming")}), \
+             patch.object(handoff.Path, "home", return_value=self.workspace / "home"), \
+             patch.object(handoff.shutil, "which", return_value=None):
+            self.assertEqual(handoff.claude_executable(), str(cli))
+
+    def test_claude_writer_reports_missing_cli(self):
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(self.workspace / "local"),
+                                     "APPDATA": str(self.workspace / "roaming")}), \
+             patch.object(handoff.Path, "home", return_value=self.workspace / "home"), \
+             patch.object(handoff.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(FileNotFoundError, "CC_AUTOHANDOFF_CLAUDE"):
+                handoff.claude_executable()
 
     def test_claude_writer_reports_unauthenticated_cli(self):
         self.platform("claude")

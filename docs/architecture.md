@@ -97,7 +97,9 @@ Claude (`CLAUDE_CODE_ENTRYPOINT = claude-desktop`); в CLI и IDE режим п�
 
 Writer запускается через локальный авторизованный CLI, отдельный API-ключ плагин не требует.
 В Claude Code CLI ищется в `CC_AUTOHANDOFF_CLAUDE`, затем в PATH, затем в
-`CLAUDE_CODE_EXECPATH` (CLI, встроенный в приложение). Дочерний `claude --print` не наследует
+`CLAUDE_CODE_EXECPATH`, затем в исполняемом файле процесса `CLAUDE_PID` (CLI, встроенный в
+приложение: desktop не всегда задаёт `CLAUDE_CODE_EXECPATH`), затем в стандартных местах установки
+(`%LOCALAPPDATA%\Claude-Data\…\claude-code\…\claude.exe`, `~/.local/bin`, `~/.claude/local`, npm). Дочерний `claude --print` не наследует
 вход приложения, поэтому `SessionStart` вызывает `claude auth status` и при `loggedIn != true`
 показывает пользователю предупреждение с командой `claude auth login`. Ошибка 401/403 из
 JSON-ответа writer попадает в категорию `authentication` и сопровождается той же подсказкой.

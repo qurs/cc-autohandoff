@@ -333,10 +333,59 @@ def project_source(path, cfg, offset):
     return result, omissions
 
 
+def process_image(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            size = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                return buffer.value
+        finally:
+            kernel32.CloseHandle(handle)
+        return None
+    with contextlib.suppress(OSError):
+        return os.readlink(f"/proc/{pid}/exe")
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        return subprocess.run(["ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True,
+                              timeout=5).stdout.strip() or None
+    return None
+
+
+def installed_claude_candidates():
+    home = Path.home()
+    local = Path(os.environ.get("LOCALAPPDATA") or home / "AppData/Local")
+    roaming = Path(os.environ.get("APPDATA") or home / "AppData/Roaming")
+    bundled = [*local.glob("Claude-Data/*/claude-code/*/*/claude.exe"), *local.glob("Claude-Data/*/claude-code/*/claude.exe"),
+               *roaming.glob("Claude/claude-code/*/claude.exe"),
+               *(home / "Library/Application Support/Claude/claude-code").glob("*/claude")]
+    # Newest bundled CLI first; then the native installer, the legacy local install and npm.
+    yield from sorted(bundled, key=lambda path: path.stat().st_mtime, reverse=True)
+    yield from (home / ".local/bin/claude.exe", home / ".local/bin/claude", home / ".claude/local/claude.exe",
+                home / ".claude/local/claude", roaming / "npm/claude.cmd")
+
+
 def claude_executable():
-    # The desktop app bundles its CLI off PATH and exposes it as CLAUDE_CODE_EXECPATH.
+    # The desktop app bundles its CLI off PATH and does not always set CLAUDE_CODE_EXECPATH;
+    # hooks still see CLAUDE_PID, the PID of that bundled CLI.
     executable = (os.environ.get("CC_AUTOHANDOFF_CLAUDE") or shutil.which("claude")
                   or os.environ.get("CLAUDE_CODE_EXECPATH"))
+    if not executable:
+        image = process_image(os.environ.get("CLAUDE_PID"))
+        if image and Path(image).name.lower() in ("claude", "claude.exe") and Path(image).is_file():
+            executable = image
+    if not executable:
+        executable = next((path for path in installed_claude_candidates() if path.is_file()), None)
     if not executable:
         raise FileNotFoundError("claude is not on PATH. Set CC_AUTOHANDOFF_CLAUDE to its absolute path.")
     return str(executable)
