@@ -54,7 +54,8 @@ claude plugin install cc-autohandoff@cc-autohandoff
 claude auth login
 ```
 
-Если в PATH нет `claude`, плагин использует CLI, встроенный в приложение. Другой путь
+Если в PATH нет `claude`, плагин использует CLI, встроенный в приложение, или ищет его
+в стандартных местах установки. Другой путь
 можно задать переменной `CC_AUTOHANDOFF_CLAUDE`. При старте сессии плагин проверяет
 `claude auth status` и предупреждает, если writer не авторизован.
 
