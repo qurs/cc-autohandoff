@@ -46,7 +46,7 @@ def verify(package):
             "Git должен сохранять исходные байты пакета для проверки checksums.")
     require((package / "bin/_internal").is_dir(), "Нет bundled runtime.")
     settings = read_json(package / "handoff-settings.json")
-    require(settings["threshold_tokens"] == 120000 and settings["models"] == {
+    require(settings["threshold_tokens"] == 150000 and settings["models"] == {
         "codex": "gpt-6-luna", "claude": "claude-haiku-5-5"}, "Нарушен контракт порога или моделей.")
     codex = read_json(package / ".codex-plugin/plugin.json")
     claude = read_json(package / ".claude-plugin/plugin.json")
@@ -153,15 +153,15 @@ def smoke(package):
             transcript = work / (host + " переписка.jsonl")
             event = {"hook_event_name": "PreToolUse", "cwd": str(work), "transcript_path": str(transcript),
                      "session_id": "package-test", "tool_name": "Bash", "tool_input": {"command": "echo test"}}
-            append_usage(119999, first=True)
-            require(invoke(event) == {}, "Порог сработал раньше 120000.")
-            append_usage(120000)
+            append_usage(149999, first=True)
+            require(invoke(event) == {}, "Порог сработал раньше 150000.")
+            append_usage(150000)
             output = invoke(event)
             require(output["hookSpecificOutput"]["permissionDecision"] == "deny", "Порог не блокирует работу.")
             states = list((data / "states").glob("*.json"))
             require(len(states) == 1, "Состояние сохранено вне plugin data.")
             state = read_json(states[0])
-            require(state["phase"] == "failed" and state["context_tokens"] == 120000,
+            require(state["phase"] == "failed" and state["context_tokens"] == 150000,
                     "Нет диагностики недоступного writer.")
             directory = Path(state["directory"])
             require((directory / "session.json").is_file() and not (directory / "HANDOFF.md").exists(),

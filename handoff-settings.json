@@ -1,5 +1,5 @@
 {
-  "threshold_tokens": 120000,
+  "threshold_tokens": 150000,
   "writer_timeout_seconds": 300,
   "max_source_chars": 600000,
   "tool_output_chars": 12000,

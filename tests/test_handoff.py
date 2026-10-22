@@ -43,7 +43,7 @@ class HandoffTests(unittest.TestCase):
             for row in rows:
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    def conversation(self, tokens=120000):
+    def conversation(self, tokens=150000):
         if handoff.PLATFORM == "claude":
             self.append({"type": "user", "message": {"content": "Сделай плагин"}},
                         {"type": "assistant", "message": {"content": [{"type": "text", "text": "Проверяю"}],
@@ -305,18 +305,18 @@ class HandoffTests(unittest.TestCase):
                     writer.assert_not_called()
 
     def test_current_usage_is_not_accumulated(self):
-        self.conversation(119999)
+        self.conversation(149999)
         handoff.hook(self.event("PreToolUse"))
         _, state = self.state()
-        self.assertEqual(state["context_tokens"], 119999)
+        self.assertEqual(state["context_tokens"], 149999)
         self.assertEqual(state["phase"], "monitoring")
 
     def test_claude_cache_usage_and_threshold_delivery(self):
         self.platform("claude")
-        self.conversation(119999)
+        self.conversation(149999)
         with patch.object(handoff, "run_writer", side_effect=self.writer) as writer, patch.object(handoff.shutil, "which", return_value="claude"):
             self.assertEqual(handoff.hook(self.event("PreToolUse")), {})
-            self.conversation(120000)
+            self.conversation(150000)
             result = handoff.hook(self.event("PostToolUse"))
             self.assertIn("claude-haiku-5-5", result["hookSpecificOutput"]["additionalContext"])
             denied = handoff.hook(self.event("PreToolUse"))
@@ -376,20 +376,20 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(handoff.read_json(path)["phase"], "ready")
 
     def test_partial_row_is_retried(self):
-        self.conversation(119999)
+        self.conversation(149999)
         state = {}
         handoff.scan_usage(self.transcript, state)
         offset = state["offset"]
-        row = json.dumps({"type": "token_usage_record", "payload": {"usage": {"total_tokens": 120000}}})
+        row = json.dumps({"type": "token_usage_record", "payload": {"usage": {"total_tokens": 150000}}})
         with self.transcript.open("ab") as stream:
             stream.write(row.encode())
         handoff.scan_usage(self.transcript, state)
         self.assertEqual(state["offset"], offset)
-        self.assertEqual(state["context_tokens"], 119999)
+        self.assertEqual(state["context_tokens"], 149999)
         with self.transcript.open("ab") as stream:
             stream.write(b"\n")
         handoff.scan_usage(self.transcript, state)
-        self.assertEqual(state["context_tokens"], 120000)
+        self.assertEqual(state["context_tokens"], 150000)
 
     def test_truncated_transcript_resets_usage(self):
         self.conversation()
@@ -550,6 +550,23 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("--no-session-persistence", command)
         self.assertNotIn("--fallback-model", command)
         self.assertEqual(json.loads(command[command.index("--settings") + 1])["fallbackModel"], [])
+
+    def test_claude_writer_falls_back_to_desktop_cli(self):
+        self.platform("claude")
+        with patch.dict(os.environ, {"CLAUDE_CODE_EXECPATH": "C:/app/claude.exe"}), \
+             patch.object(handoff.shutil, "which", return_value=None):
+            command = handoff.writer_command(self.workspace / "writer-result.json", handoff.settings(), self.workspace)
+        self.assertEqual(command[0], "C:/app/claude.exe")
+
+    def test_claude_writer_reports_unauthenticated_cli(self):
+        self.platform("claude")
+        script = self.workspace / "logged out writer.py"
+        result = {"type": "result", "subtype": "success", "is_error": True, "api_error_status": 401,
+                  "result": "Not logged in"}
+        script.write_text(f"import sys\nsys.stdin.read()\nprint({json.dumps(result)!r})\nsys.exit(1)\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "not logged in"):
+            handoff.run_writer([sys.executable, str(script)], "quoted source", self.workspace, 10)
+        self.assertEqual(handoff.read_json(self.workspace / "writer-errors.log")["categories"], ["authentication"])
 
     def test_claude_print_process_and_isolated_environment(self):
         self.platform("claude")

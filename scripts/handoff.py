@@ -324,7 +324,9 @@ def project_source(path, cfg, offset):
 
 def writer_command(output, cfg, directory):
     if PLATFORM == "claude":
-        executable = os.environ.get("CC_AUTOHANDOFF_CLAUDE") or shutil.which("claude")
+        # The desktop app bundles its CLI off PATH and exposes it as CLAUDE_CODE_EXECPATH.
+        executable = (os.environ.get("CC_AUTOHANDOFF_CLAUDE") or shutil.which("claude")
+                      or os.environ.get("CLAUDE_CODE_EXECPATH"))
         if not executable:
             raise FileNotFoundError("claude is not on PATH. Set CC_AUTOHANDOFF_CLAUDE to its absolute path.")
         return [str(executable), "--print", "--model", MODEL, "--output-format", "json",
@@ -378,6 +380,13 @@ def run_writer(command, prompt, directory, timeout):
         "model_unavailable": (b"model_not_found", b"model is not supported", b"model does not exist"),
         "connection": (b"connection", b"network", b"timed out"),
     }.items() if any(word in err.lower() for word in words)]
+    if PLATFORM == "claude":
+        # claude --print reports API failures in the stdout result, not on stderr.
+        with contextlib.suppress(ValueError, UnicodeDecodeError, AttributeError):
+            status = json.loads(out).get("api_error_status")
+            category = {401: "authentication", 403: "authentication", 404: "model_unavailable", 429: "rate_limit"}.get(status)
+            if category and category not in categories:
+                categories.append(category)
     write_json(directory / "writer-errors.log", {
         "model": MODEL, "exit_code": proc.returncode, "timed_out": timed_out,
         "stdout_bytes": len(out), "stderr_bytes": len(err), "categories": categories,
@@ -385,7 +394,9 @@ def run_writer(command, prompt, directory, timeout):
     if timed_out:
         raise TimeoutError(f"{MODEL} exceeded {timeout} seconds. No other model was used.")
     if proc.returncode:
-        raise RuntimeError(f"{MODEL} exited with code {proc.returncode}; see writer-errors.log in the handoff directory.")
+        hint = (" Writer CLI is not logged in: run `claude /login` in a terminal, or set CC_AUTOHANDOFF_CLAUDE to an authenticated claude"
+                if "authentication" in categories else "")
+        raise RuntimeError(f"{MODEL} exited with code {proc.returncode}; see writer-errors.log in the handoff directory.{hint}")
     if PLATFORM == "claude":
         try:
             result = json.loads(out)
@@ -744,7 +755,7 @@ def handle_hook(event):
             return emit_context(event_name, f"cc-autohandoff включён: при {cfg['threshold_tokens']} токенах текущего контекста отдельная {MODEL} готовит HANDOFF.md. "
                                 + transition + "После доставки остановись. Compact запрещён. Не подменяй writer своим резюме.")
         if state.get("context_tokens") is None and event_name in ("PreToolUse", "PostToolUse", "Stop"):
-            return {"systemMessage": "Handoff: ещё нет поддерживаемых данных о токенах. Compact блокируется, порог 120к пока не подтверждён."}
+            return {"systemMessage": f"Handoff: ещё нет поддерживаемых данных о токенах. Compact блокируется, порог {cfg['threshold_tokens']} пока не подтверждён."}
         return {}
     with locked(state_path.with_suffix(".lock")):
         state = read_json(state_path)

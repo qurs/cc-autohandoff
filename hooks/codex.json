@@ -37,7 +37,7 @@
             "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
             "timeout": 330,
             "additionalContextLimit": 1800,
-            "statusMessage": "Handoff: GPT-6 Luna at 120k"
+            "statusMessage": "Handoff: GPT-6 Luna at 150k"
           }
         ]
       }
@@ -51,7 +51,7 @@
             "commandWindows": "python \"${PLUGIN_ROOT}/scripts/handoff.py\" hook",
             "timeout": 330,
             "additionalContextLimit": 1800,
-            "statusMessage": "Handoff: GPT-6 Luna at 120k"
+            "statusMessage": "Handoff: GPT-6 Luna at 150k"
           }
         ]
       }
