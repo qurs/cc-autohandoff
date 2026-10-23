@@ -1,5 +1,5 @@
 {
   "name": "cc-autohandoff",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Передача контекста в Claude Desktop при 150 000 токенов: handoff пишет субагент Haiku 5.5, compact запрещён."
 }
