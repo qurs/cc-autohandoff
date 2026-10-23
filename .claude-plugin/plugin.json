@@ -1,5 +1,5 @@
 {
   "name": "cc-autohandoff",
-  "version": "0.4.1",
-  "description": "Передача контекста при 150 000 токенов: GPT-6 Luna в Codex, Haiku 5.5 в Claude Code. Без compact."
+  "version": "0.5.0",
+  "description": "Передача контекста в Claude Desktop при 150 000 токенов: handoff пишет субагент Haiku 5.5, compact запрещён."
 }

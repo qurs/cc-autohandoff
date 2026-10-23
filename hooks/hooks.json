@@ -7,11 +7,9 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
             "args": [
-              "--platform",
-              "claude",
               "hook"
             ],
-            "timeout": 330
+            "timeout": 60
           }
         ]
       }
@@ -23,11 +21,9 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
             "args": [
-              "--platform",
-              "claude",
               "hook"
             ],
-            "timeout": 330,
+            "timeout": 60,
             "onFailure": "block"
           }
         ]
@@ -40,11 +36,9 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
             "args": [
-              "--platform",
-              "claude",
               "hook"
             ],
-            "timeout": 330,
+            "timeout": 60,
             "onFailure": "block"
           }
         ]
@@ -57,11 +51,23 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
             "args": [
-              "--platform",
-              "claude",
               "hook"
             ],
-            "timeout": 330
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "hook"
+            ],
+            "timeout": 60
           }
         ]
       }
@@ -73,11 +79,9 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
             "args": [
-              "--platform",
-              "claude",
               "hook"
             ],
-            "timeout": 330
+            "timeout": 60
           }
         ]
       }
@@ -89,12 +93,38 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
             "args": [
-              "--platform",
-              "claude",
               "hook"
             ],
-            "timeout": 330,
+            "timeout": 60,
             "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "hook"
+            ],
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe",
+            "args": [
+              "hook"
+            ],
+            "timeout": 60
           }
         ]
       }
