@@ -60,8 +60,8 @@ class PublicationTests(unittest.TestCase):
             run_git("commit", "-m", "Source fixture")
             source_commit = run_git("rev-parse", "HEAD")
             (package / ".gitattributes").write_bytes(b"* -text\n")
-            (package / ".codex-plugin").mkdir()
-            (package / ".codex-plugin/plugin.json").write_bytes(b'{}\n')
+            (package / ".claude-plugin").mkdir()
+            (package / ".claude-plugin/plugin.json").write_bytes(b'{}\n')
             runtime = package / "runtime.bin"
             runtime.write_bytes(b"\x00\xff\r\n")
             workflow = (ROOT / ".github/workflows/package.yml").read_text(encoding="utf-8")
@@ -82,7 +82,7 @@ class PublicationTests(unittest.TestCase):
             first = publish()
             self.assertEqual(
                 run_git("ls-tree", "-r", "--name-only", first, cwd=remote).splitlines(),
-                [".codex-plugin/plugin.json", ".gitattributes", "runtime.bin"],
+                [".claude-plugin/plugin.json", ".gitattributes", "runtime.bin"],
             )
             self.assertEqual(run_git("rev-list", "--parents", "-n", "1", first, cwd=remote), first)
             self.assertEqual(publish(), first)
@@ -93,7 +93,7 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual(run_git("rev-parse", updated + "^", cwd=remote), first)
             self.assertEqual(
                 run_git("ls-tree", "-r", "--name-only", updated, cwd=remote).splitlines(),
-                [".codex-plugin/plugin.json", ".gitattributes", "replacement.bin"],
+                [".claude-plugin/plugin.json", ".gitattributes", "replacement.bin"],
             )
             self.assertEqual((publication / "replacement.bin").read_bytes(), b"updated\x00\xff\n")
             self.assertEqual(publish(), updated)

@@ -11,7 +11,7 @@
         "url": "https://github.com/qurs/cc-autohandoff.git",
         "ref": "windows-x64"
       },
-      "description": "Передача при 150 000 токенов контекста: GPT-6 Luna для Codex, Haiku 5.5 для Claude Code. Без compact."
+      "description": "Передача контекста при 150 000 токенов в Claude Desktop: субагент Haiku 5.5 пишет HANDOFF.md. Без compact."
     }
   ]
 }

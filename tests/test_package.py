@@ -22,16 +22,15 @@ handoff = load_module("handoff")
 
 
 class PackageTests(unittest.TestCase):
-    def test_source_marketplaces_resolve_remote_package_for_both_hosts(self):
-        for name in (".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json"):
-            catalog = checker.read_json(ROOT / name)
-            self.assertEqual(catalog["name"], "cc-autohandoff")
-            self.assertEqual(len(catalog["plugins"]), 1)
-            entry = catalog["plugins"][0]
-            self.assertEqual(entry["name"], "cc-autohandoff")
-            self.assertEqual(entry["source"], {
-                "source": "url", "url": "https://github.com/qurs/cc-autohandoff.git", "ref": "windows-x64",
-            })
+    def test_source_marketplace_resolves_remote_package(self):
+        catalog = checker.read_json(ROOT / ".claude-plugin/marketplace.json")
+        self.assertEqual(catalog["name"], "cc-autohandoff")
+        self.assertEqual(len(catalog["plugins"]), 1)
+        entry = catalog["plugins"][0]
+        self.assertEqual(entry["name"], "cc-autohandoff")
+        self.assertEqual(entry["source"], {
+            "source": "url", "url": "https://github.com/qurs/cc-autohandoff.git", "ref": "windows-x64",
+        })
 
     def setUp(self):
         scratch = ROOT / ".build"
@@ -47,8 +46,7 @@ class PackageTests(unittest.TestCase):
         license_path.write_text("Synthetic license fixture", encoding="utf-8")
         self.licenses = {"Python.txt": license_path, "PyInstaller.txt": license_path}
         # Package tests copy public sources into a disposable root, never installed plugins.
-        for name in (*builder.PACKAGE_FILES, "hooks/codex.json", "hooks/hooks.json",
-                     ".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json"):
+        for name in (*builder.PACKAGE_FILES, "hooks/hooks.json", ".claude-plugin/marketplace.json"):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, target)
@@ -78,7 +76,7 @@ class PackageTests(unittest.TestCase):
         target.relative_to((ROOT / ".build").resolve())
         shutil.rmtree(target)
 
-    def test_allowlist_and_both_marketplaces(self):
+    def test_allowlist_and_marketplace(self):
         for directory in (self.root, self.runtime):
             (directory / "SOURCE.jsonl").write_text("private transcript", encoding="utf-8")
         package = self.assemble()

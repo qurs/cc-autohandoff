@@ -1,4 +1,4 @@
-"""Сборка автономного Windows x64 пакета для встроенных магазинов плагинов."""
+"""Сборка автономного Windows x64 пакета плагина для Claude Desktop."""
 from __future__ import annotations
 
 import argparse
@@ -14,9 +14,8 @@ import sysconfig
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_FILES = (
-    ".codex-plugin/plugin.json", ".claude-plugin/plugin.json", "handoff-settings.json",
-    "scripts/handoff-schema.json", "scripts/writer-instructions.md", "scripts/hook.ps1", "skills/handoff/SKILL.md",
-    "README.md", "docs/architecture.md",
+    ".claude-plugin/plugin.json", "handoff-settings.json", "agents/handoff-writer.md",
+    "skills/handoff/SKILL.md", "README.md", "docs/architecture.md",
 )
 
 
@@ -47,27 +46,18 @@ def assemble(runtime, output, licenses):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
     # Source hooks remain available for developers. Installed hooks use only the binary.
-    for filename, host in (("codex.json", "codex"), ("hooks.json", "claude")):
-        config = json.loads((ROOT / "hooks" / filename).read_text(encoding="utf-8"))
-        for event, entries in config["hooks"].items():
-            for entry in entries:
-                for hook in entry["hooks"]:
-                    if host == "codex":
-                        hook["command"] = '"${PLUGIN_ROOT}/bin/cc-autohandoff.exe" hook'
-                        hook["commandWindows"] = ('powershell.exe -NoLogo -NoProfile -NonInteractive '
-                                                  '-ExecutionPolicy Bypass -File "${PLUGIN_ROOT}/scripts/hook.ps1"')
-                        hook["statusMessage"] = "Handoff: проверка контекста и передачи"
-                    else:
-                        hook["command"] = "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe"
-                        hook["args"] = ["--platform", "claude", "hook"]
-                        if event in ("PreToolUse", "UserPromptSubmit", "PreCompact"):
-                            hook["onFailure"] = "block"
-        write_json(output / "hooks" / filename, config)
-    for name in (".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json"):
-        catalog = json.loads((ROOT / name).read_text(encoding="utf-8"))
-        catalog["plugins"][0]["source"] = ({"source": "local", "path": "./"}
-                                             if name.startswith(".agents/") else "./")
-        write_json(output / name, catalog)
+    config = json.loads((ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))
+    for event, entries in config["hooks"].items():
+        for entry in entries:
+            for hook in entry["hooks"]:
+                hook["command"] = "${CLAUDE_PLUGIN_ROOT}/bin/cc-autohandoff.exe"
+                hook["args"] = ["hook"]
+                if event in ("PreToolUse", "UserPromptSubmit", "PreCompact"):
+                    hook["onFailure"] = "block"
+    write_json(output / "hooks/hooks.json", config)
+    catalog = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+    catalog["plugins"][0]["source"] = "./"
+    write_json(output / ".claude-plugin/marketplace.json", catalog)
     # Git must preserve the checked bytes on Windows and POSIX alike.
     (output / ".gitattributes").write_bytes(b"* -text\n")
     checksums = {path.relative_to(output).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
