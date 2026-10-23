@@ -155,6 +155,25 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(self.state()["phase"], "writing")
         self.assertEqual(self.state()["trigger"], "PreCompact")
 
+    def test_early_auto_compact_is_blocked_without_handoff(self):
+        self.conversation(120000)
+        output = handoff.hook(self.event("PreCompact", trigger="auto"))
+        self.assertEqual(output["decision"], "block")
+        self.assertEqual(self.state()["phase"], "monitoring")
+        self.assertFalse((self.workspace / ".cc-autohandoff").exists())
+
+    def test_auto_compact_at_threshold_starts_handoff(self):
+        self.conversation(150000)
+        self.assertEqual(handoff.hook(self.event("PreCompact", trigger="auto"))["decision"], "block")
+        self.assertEqual(self.state()["phase"], "writing")
+
+    def test_missing_transcript_is_silent_at_session_start(self):
+        missing = {"hook_event_name": "SessionStart", "session_id": SESSION, "cwd": str(self.workspace),
+                   "transcript_path": str(self.workspace / "absent.jsonl")}
+        self.assertIn("150000", handoff.hook(missing)["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(handoff.hook(dict(missing, hook_event_name="UserPromptSubmit", prompt="Привет")), {})
+        self.assertIn("transcript", handoff.hook(dict(missing, hook_event_name="PreToolUse", tool_name="Bash"))["systemMessage"])
+
     def test_compact_is_blocked_in_every_phase(self):
         compact = self.event("PreCompact", trigger="auto")
         self.trigger()

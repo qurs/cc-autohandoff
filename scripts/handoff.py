@@ -747,6 +747,15 @@ def notice(state):
             "Не продолжай исходную задачу, пока handoff не готов или пользователь явно не отключит плагин.")
 
 
+def enabled_notice(name, cfg):
+    transition = ("После готовности handoff выполни только операции доставки через инструменты Claude desktop, "
+                  "указанные hook. Автосоздание новой сессии с текстом handoff разрешено пользователем в настройках плагина. "
+                  if continuation_mode(cfg) == "claude-desktop" else "Пользователь открывает следующий чат вручную. ")
+    return emit_context(name, f"cc-autohandoff включён: при {cfg['threshold_tokens']} токенах текущего контекста hook "
+                              f"попросит запустить субагента {WRITER_AGENT} ({MODEL}), который пишет HANDOFF.md. "
+                        + transition + "После доставки остановись. Compact запрещён. Не подменяй writer своим резюме.")
+
+
 def emit_context(event_name, message):
     return {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": message}}
 
@@ -765,12 +774,10 @@ def respond(state, event, cfg, key):
     phase = state["phase"]
     if phase == "monitoring":
         if name == "SessionStart":
-            transition = ("После готовности handoff выполни только операции доставки через инструменты Claude desktop, "
-                          "указанные hook. Автосоздание новой сессии с текстом handoff разрешено пользователем в настройках плагина. "
-                          if continuation_mode(cfg) == "claude-desktop" else "Пользователь открывает следующий чат вручную. ")
-            return emit_context(name, f"cc-autohandoff включён: при {cfg['threshold_tokens']} токенах текущего контекста hook "
-                                      f"попросит запустить субагента {WRITER_AGENT} ({MODEL}), который пишет HANDOFF.md. "
-                                + transition + "После доставки остановись. Compact запрещён. Не подменяй writer своим резюме.")
+            return enabled_notice(name, cfg)
+        if name == "PreCompact":
+            return {"decision": "block", "reason": f"cc-autohandoff: compact заблокирован. Handoff начнётся при {cfg['threshold_tokens']} "
+                                                   f"токенах текущего контекста (сейчас {state.get('context_tokens') or 'неизвестно'})."}
         if state.get("context_tokens") is None and name in ("PreToolUse", "PostToolUse", "Stop"):
             return {"systemMessage": f"Handoff: ещё нет поддерживаемых данных о токенах. Compact блокируется, порог {cfg['threshold_tokens']} пока не подтверждён."}
         return {}
@@ -854,7 +861,12 @@ def handle_hook(event):
     cfg = settings()
     transcript = transcript_for(event)
     if transcript is None:
-        return {"systemMessage": "Handoff: transcript недоступен, размер контекста не отслеживается."}
+        # A new session has no transcript file until its first response is written.
+        if name == "SessionStart":
+            return enabled_notice(name, cfg)
+        if name in ("PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "PreCompact"):
+            return {"systemMessage": "Handoff: transcript недоступен, размер контекста не отслеживается."}
+        return {}
     workspace = Path(event.get("cwd") or os.getcwd()).resolve()
     session = session_for(event, transcript)
     state_path, key = state_path_for(workspace, transcript, session)
@@ -867,7 +879,10 @@ def handle_hook(event):
         scan_usage(transcript, state)
         check_staleness(state, cfg)
         prompt = str(event.get("prompt", ""))
-        if state["phase"] == "monitoring" and (name == "PreCompact" or (state.get("context_tokens") or 0) >= cfg["threshold_tokens"]):
+        reached = (state.get("context_tokens") or 0) >= cfg["threshold_tokens"]
+        # The host auto-compacts well below the threshold; only a manual compact forces an early handoff.
+        early_auto_compact = name == "PreCompact" and event.get("trigger") == "auto" and not reached
+        if state["phase"] == "monitoring" and (reached or (name == "PreCompact" and not early_auto_compact)):
             state.update(trigger=name, triggered_at=time.time(), trigger_tokens=state.get("context_tokens"),
                          threshold_tokens=cfg["threshold_tokens"], continuation_mode=continuation_mode(cfg))
             extra = (("user", prompt) if name == "UserPromptSubmit" else
